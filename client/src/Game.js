@@ -52,6 +52,7 @@ function Game({ players, room, orientation, cleanup }) {
 
   // onDrop function
   function onDrop(sourceSquare, targetSquare) {
+        console.log("onDrop called!", sourceSquare, "→", targetSquare);
     // orientation is either 'white' or 'black'. game.turn() returns 'w' or 'b'
     if (chess.turn() !== orientation[0]) return false; // <- 1 prohibit player from moving piece of other player
 
@@ -60,16 +61,17 @@ function Game({ players, room, orientation, cleanup }) {
     const moveData = {
       from: sourceSquare,
       to: targetSquare,
-      color: chess.turn(),
+     // color: chess.turn(),
       promotion: "q", // promote to queen where possible
     };
 
     console.log("Chess turn:", chess.turn(), "Orientation:", orientation);
 
     console.log("Players:", players);
-
+     
 
     const move = makeAMove(moveData);
+    console.log("Move legal:", move)
     
     // illegal move
     if (move === null) return false;
@@ -84,9 +86,13 @@ function Game({ players, room, orientation, cleanup }) {
 
   useEffect(() => {
     socket.on("move", (move) => {
+          console.log("Received move from socket:", move);
       makeAMove(move); //
     });
   }, [makeAMove]);
+
+ 
+
 
   	
   useEffect(() => {
