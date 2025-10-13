@@ -15,102 +15,151 @@ import { Chess } from "chess.js";
 import CustomDialog from "./components/CustomDialog";
 import socket from "./socket";
 
-function Game({ players, room, orientation, cleanup }) {
-  const chess = useMemo(() => new Chess(), []); // <- 1
-  const [fen, setFen] = useState(chess.fen()); // <- 2
+function Game({ players, room, orientation, cleanup, gameType }) {
+  // ♟️ Alapállások különböző játéktípusokhoz
+  const chess = useMemo(() => {
+    const type = (gameType || "").toLowerCase().trim();
+
+    if (type === "paraszthaboru")
+      return new Chess("4k3/pppppppp/8/8/8/8/PPPPPPPP/4K3 w - - 0 1");
+    if (type === "lovakcsata")
+      return new Chess("4k3/nnnnnnnn/8/8/8/8/NNNNNNNN/4K3 w - - 0 1");
+    if (type === "knightmare")
+      return new Chess("r1bqkb1r/pppppppp/8/8/8/8/PPPPPPPP/NNNNKNNN w - - 0 1");
+    if (type === "transcendental_chess")
+      return new Chess("kqbbrnrn/pppppppp/8/8/8/8/PPPPPPPP/BRNKRNQB w - - 0 1");
+    if (type === "chess960")
+      return new Chess("bnrbnkrq/pppppppp/8/8/8/8/PPPPPPPP/BNRBNKRQ w - - 0 1");
+    if (type === "mongredien_chess")
+      return new Chess("rbbqknnr/pppppppp/8/8/8/8/PPPPPPPP/RBBQKNNR w - - 0 1");
+    if (type === "fianchetto_chess")
+      return new Chess("bnrqkrnb/pppppppp/8/8/8/8/PPPPPPPP/BNRQKRNB w - - 0 1");
+    if (type === "vezér-huszár_chess")
+      return new Chess("qqqqkqqq/pppppppp/8/8/8/PPPPPPPP/NNNNNNNN/NNNNKNNN w - - 0 1");
+
+    return new Chess(); // alap sakk
+  }, [gameType]);
+
+  const [fen, setFen] = useState(chess.fen());
   const [over, setOver] = useState("");
 
+  useEffect(() => {
+  setFen(chess.fen());
+  setOver(""); // új játék, reseteljük az eredményt
+}, [chess]);
+
+  // ♟️ Lépéskezelő függvény
   const makeAMove = useCallback(
-    (move) => {
-      try {
-        const result = chess.move(move); // update Chess instance
-        setFen(chess.fen()); // update fen state to trigger a re-render
-  
-        console.log("over, checkmate", chess.isGameOver(), chess.isCheckmate());
-  
-        if (chess.isGameOver()) { // check if move led to "game over"
-          if (chess.isCheckmate()) { // if reason for game over is a checkmate
-            // Set message to checkmate. 
-            setOver(
-              `Checkmate! ${chess.turn() === "w" ? "black" : "white"} wins!`
-            ); 
-            // The winner is determined by checking for which side made the last move
-          } else if (chess.isDraw()) { // if it is a draw
-            setOver("Draw"); // set message to "Draw"
-          } else {
-            setOver("Game over");
-          }
-        }
-  
-        return result;
-      } catch (e) {
-        return null;
-      } // null if the move was illegal, the move object if the move was legal
-    },
-    [chess]
-  );
+  (moveData) => {
+    try {
+      const move = chess.move(moveData);
+      if (!move) return null; // illegális lépés
 
-  // onDrop function
-  function onDrop(sourceSquare, targetSquare) {
-        console.log("onDrop called!", sourceSquare, "→", targetSquare);
-    // orientation is either 'white' or 'black'. game.turn() returns 'w' or 'b'
-    if (chess.turn() !== orientation[0]) return false; // <- 1 prohibit player from moving piece of other player
+      // Frissítsük a táblát
+      const newFen = chess.fen();
+      setFen(newFen);
 
-    if (players.length < 2) return false; // <- 2 disallow a move if the opponent has not joined
+      // --- EREDMÉNY ELLENŐRZÉS ---
+          if (chess.isCheckmate()) {
+        const winner = chess.turn() === "w" ? "Black" : "White";
+        setOver(`Checkmate! ${winner} wins!`);
+      } else if (chess.isStalemate()) {
+        setOver("Stalemate! It's a draw (patthelyzet).");
+      } else if (chess.isThreefoldRepetition()) {
+        setOver("Draw by threefold repetition.");
+      } else if (chess.isInsufficientMaterial()) {
+        setOver("Draw — insufficient material (nincs elég figura a matt kényszerítéséhez).");
+      } else if (
+        !chess.isCheckmate() &&
+        !chess.isStalemate() &&
+        !chess.isThreefoldRepetition() &&
+        !chess.isInsufficientMaterial() &&
+        chess.isDraw()
+      ) {
+        setOver("Draw by 50-move rule or repetition.");
+      }
 
-    const moveData = {
-      from: sourceSquare,
-      to: targetSquare,
-     // color: chess.turn(),
-      promotion: "q", // promote to queen where possible
-    };
 
-    console.log("Chess turn:", chess.turn(), "Orientation:", orientation);
 
-    console.log("Players:", players);
-     
+      return move;
+    } catch (e) {
+      console.error("Illegal move:", e);
+      return null;
+    }
+  },
+  [chess]
+);
 
-    const move = makeAMove(moveData);
-    console.log("Move legal:", move)
-    
-    // illegal move
-    if (move === null) return false;
+  // ♟️ Lépés lehelyezése a táblán
+ function onDrop(sourceSquare, targetSquare) {
+  console.log("onDrop called!", sourceSquare, "→", targetSquare);
 
-    socket.emit("move", { // <- 3 emit a move event.
-      move,
-      room,
-    }); // this event will be transmitted to the opponent via the server
-
-    return true;
+  // mindig frissítsd a chess objektumot a legutóbbi állásra!
+  try {
+    chess.load(fen);
+  } catch (err) {
+    console.error("Failed to sync chess state:", err);
   }
 
-  useEffect(() => {
-    socket.on("move", (move) => {
-          console.log("Received move from socket:", move);
-      makeAMove(move); //
-    });
-  }, [makeAMove]);
+  if (chess.turn() !== orientation[0]) return false;
+  if (players.length < 2) return false;
 
- 
+  const moveData = {
+    from: sourceSquare,
+    to: targetSquare,
+    color: chess.turn(),
+    promotion: "q",
+  };
 
+  const move = makeAMove(moveData);
+  if (move === null) return false;
 
-  	
+  socket.emit("move", {
+    move,
+    room,
+    fen: chess.fen(),
+  });
+
+  return true;
+}
+
+  // ♟️ Ellenfél lépésének fogadása
   useEffect(() => {
-    socket.on('playerDisconnected', (player) => {
-      setOver(`${player.username} has disconnected`); // set game over
-    });
-  }, []);
-  
-  useEffect(() => {
-    socket.on('closeRoom', ({ roomId }) => {
-      console.log('closeRoom', roomId, room)
-      if (roomId === room) {
-        cleanup();
+    const handleMove = ({ move, fen }) => {
+      try {
+        console.log("♟ Received move from opponent:", move);
+        if (fen && fen !== chess.fen()) {
+          chess.load(fen);
+          setFen(fen);
+        }
+      } catch (err) {
+        console.error("Failed to load remote FEN:", err);
       }
+    };
+
+    socket.on("move", handleMove);
+    return () => socket.off("move", handleMove);
+  }, [chess]);
+
+  // 🔌 Ellenfél kilépése
+  useEffect(() => {
+    const handleDisconnect = (player) => {
+      console.log("Player disconnected:", player);
+      setOver(`${player.username} has disconnected`);
+    };
+
+    socket.on("playerDisconnected", handleDisconnect);
+    return () => socket.off("playerDisconnected", handleDisconnect);
+  }, []);
+
+  // 🔒 Szoba bezárás
+  useEffect(() => {
+    socket.on("closeRoom", ({ roomId }) => {
+      if (roomId === room) cleanup();
     });
   }, [room, cleanup]);
 
-  // Game component returned jsx
+  // 🎨 Megjelenítés
   return (
     <Stack>
       <Card>
@@ -118,18 +167,19 @@ function Game({ players, room, orientation, cleanup }) {
           <Typography variant="h5">Room ID: {room}</Typography>
         </CardContent>
       </Card>
+
       <Stack flexDirection="row" sx={{ pt: 2 }}>
-        <div className="board" style={{
-          maxWidth: 600,
-          maxHeight: 600,
-          flexGrow: 1,
-        }}>
+        <div
+          className="board"
+          style={{ maxWidth: 600, maxHeight: 600, flexGrow: 1 }}
+        >
           <Chessboard
             position={fen}
             onPieceDrop={onDrop}
             boardOrientation={orientation}
           />
         </div>
+
         {players.length > 0 && (
           <Box>
             <List>
@@ -143,15 +193,34 @@ function Game({ players, room, orientation, cleanup }) {
           </Box>
         )}
       </Stack>
-      <CustomDialog // Game Over CustomDialog
-        open={Boolean(over)}
-        title={over}
-        contentText={over}
-        handleContinue={() => {
-          socket.emit("closeRoom", { roomId: room });
-          cleanup();
-        }}
-      />
+
+{/* {over && (
+  <CustomDialog
+    open={true}
+    title="Game Over"
+    contentText={over}
+    handleContinue={() => {
+      socket.emit("closeRoom", { roomId: room });
+      cleanup();
+      setOver("");
+    }}
+  />
+)} */}
+
+<CustomDialog
+  open={Boolean(over)}
+  title="Game Over"
+  contentText={over}
+  handleContinue={() => {
+    socket.emit("closeRoom", { roomId: room });
+    cleanup();
+    setOver(""); // reset state
+  }}
+/>
+
+
+
+
     </Stack>
   );
 }

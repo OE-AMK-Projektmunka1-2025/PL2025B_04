@@ -79,9 +79,33 @@ io.on('connection', (socket) => {
     socket.to(args.roomId).emit('opponentJoined', roomUpdate);
   });
 
-  socket.on('move', (data) => {
-    socket.to(data.room).emit('move', data.move);
+  // socket.on('move', (data) => {
+  //   socket.to(data.room).emit('move', data.move);
+  // });
+
+  socket.on("move", (data) => {
+  // broadcast to other player
+  socket.to(data.room).emit("move", {
+    move: data.move,
+    fen: data.fen, // <<< küldjük az új FEN-t is
   });
+});
+
+
+  // 💡 Itt a disconnect esemény
+  socket.on("disconnect", () => {
+    console.log(`${socket.data.username} disconnected`);
+    
+    rooms.forEach((room) => {
+      if (room.players.find(p => p.id === socket.id)) {
+        socket.to(room.roomId).emit("playerDisconnected", {
+          id: socket.id,
+          username: socket.data.username
+        });
+      }
+    });
+  });
+
 });
 
 server.listen(port, () => {

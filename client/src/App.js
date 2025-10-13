@@ -13,6 +13,7 @@ export default function App() {
   const [room, setRoom] = useState("");
   const [orientation, setOrientation] = useState("");
   const [players, setPlayers] = useState([]);
+    const [gameType, setGameType] = useState("paraszthaboru"); // 💡 új állapot
 
   // resets the states responsible for initializing a game
   const cleanup = useCallback(() => {
@@ -65,6 +66,7 @@ export default function App() {
           orientation={orientation}
           username={username}
           players={players}
+             gameType={gameType} 
           // the cleanup function will be used by Game to reset the state when a game is over
           cleanup={cleanup}
         />
@@ -73,6 +75,7 @@ export default function App() {
           setRoom={setRoom}
           setOrientation={setOrientation}
           setPlayers={setPlayers}
+           setGameType={setGameType} 
         />
       )}
     </Container>
