@@ -1,4 +1,3 @@
-// InitGame.jsx
 import { Button, Stack, TextField, MenuItem, Select, InputLabel, FormControl } from "@mui/material";
 import { useState } from "react";
 import CustomDialog from "./components/CustomDialog";
