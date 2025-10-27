@@ -212,9 +212,14 @@ function Game({ players, room, orientation, cleanup, gameType }) {
   title="Game Over"
   contentText={over}
   handleContinue={() => {
-    socket.emit("closeRoom", { roomId: room });
-    cleanup();
-    setOver(""); // reset state
+    // zárjuk le a modalt
+    setOver("");
+
+    // várunk, amíg az Emotion / MUI lezárja az animációt és törli a stílusokat
+    setTimeout(() => {
+      socket.emit("closeRoom", { roomId: room });
+      cleanup();
+    }, 150);
   }}
 />
 

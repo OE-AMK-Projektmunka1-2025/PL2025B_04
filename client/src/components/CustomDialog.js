@@ -7,7 +7,7 @@ import DialogTitle from "@mui/material/DialogTitle";
 
 export default function CustomDialog({ open, children, title, contentText, handleContinue }) {
   return (
-    <Dialog open={open}> {/*dialog container*/}
+    <Dialog open={open} keepMounted> {/*dialog container*/}
       <DialogTitle>{title}</DialogTitle>
       <DialogContent> {/* Main body of modal/dialog */}
         <DialogContentText> {/* main text */}
