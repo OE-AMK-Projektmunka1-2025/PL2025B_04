@@ -1,133 +1,101 @@
-import {
-  Card,
-  CardContent,
-  List,
-  ListItem,
-  ListItemText,
-  ListSubheader,
-  Stack,
-  Typography,
-  Box,
-} from "@mui/material";
-import { useState, useMemo, useCallback, useEffect } from "react";
-import { Chessboard } from "react-chessboard";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { Stack, Card, CardContent, Typography, Box, List, ListItem, ListItemText, ListSubheader } from "@mui/material";
 import { Chess } from "chess.js";
-import CustomDialog from "./components/CustomDialog";
 import socket from "./socket";
+import CustomBoard from "./components/CustomBoard";
+import CustomDialog from "./components/CustomDialog";
 
-function Game({ players, room, orientation, cleanup, gameType }) {
-  // ♟️ Alapállások különböző játéktípusokhoz
-  const chess = useMemo(() => {
-    const type = (gameType || "").toLowerCase().trim();
-
-    if (type === "paraszthaboru")
-      return new Chess("4k3/pppppppp/8/8/8/8/PPPPPPPP/4K3 w - - 0 1");
-    if (type === "lovakcsata")
-      return new Chess("4k3/nnnnnnnn/8/8/8/8/NNNNNNNN/4K3 w - - 0 1");
-    if (type === "knightmare")
-      return new Chess("r1bqkb1r/pppppppp/8/8/8/8/PPPPPPPP/NNNNKNNN w - - 0 1");
-    if (type === "transcendental_chess")
-      return new Chess("kqbbrnrn/pppppppp/8/8/8/8/PPPPPPPP/BRNKRNQB w - - 0 1");
-    if (type === "chess960")
-      return new Chess("bnrbnkrq/pppppppp/8/8/8/8/PPPPPPPP/BNRBNKRQ w - - 0 1");
-    if (type === "mongredien_chess")
-      return new Chess("rbbqknnr/pppppppp/8/8/8/8/PPPPPPPP/RBBQKNNR w - - 0 1");
-    if (type === "fianchetto_chess")
-      return new Chess("bnrqkrnb/pppppppp/8/8/8/8/PPPPPPPP/BNRQKRNB w - - 0 1");
-    if (type === "vezér-huszár_chess")
-      return new Chess("qqqqkqqq/pppppppp/8/8/8/PPPPPPPP/NNNNNNNN/NNNNKNNN w - - 0 1");
-
-    return new Chess(); // alap sakk
-  }, [gameType]);
-
-  const [fen, setFen] = useState(chess.fen());
-  const [over, setOver] = useState("");
-
-  useEffect(() => {
-  setFen(chess.fen());
-  setOver(""); // új játék, reseteljük az eredményt
-}, [chess]);
-
-  // ♟️ Lépéskezelő függvény
-  const makeAMove = useCallback(
-  (moveData) => {
-    try {
-      const move = chess.move(moveData);
-      if (!move) return null; // illegális lépés
-
-      // Frissítsük a táblát
-      const newFen = chess.fen();
-      setFen(newFen);
-
-      // --- EREDMÉNY ELLENŐRZÉS ---
-          if (chess.isCheckmate()) {
-        const winner = chess.turn() === "w" ? "Black" : "White";
-        setOver(`Checkmate! ${winner} wins!`);
-      } else if (chess.isStalemate()) {
-        setOver("Stalemate! It's a draw (patthelyzet).");
-      } else if (chess.isThreefoldRepetition()) {
-        setOver("Draw by threefold repetition.");
-      } else if (chess.isInsufficientMaterial()) {
-        setOver("Draw — insufficient material (nincs elég figura a matt kényszerítéséhez).");
-      } else if (
-        !chess.isCheckmate() &&
-        !chess.isStalemate() &&
-        !chess.isThreefoldRepetition() &&
-        !chess.isInsufficientMaterial() &&
-        chess.isDraw()
-      ) {
-        setOver("Draw by 50-move rule or repetition.");
+function fenToPosition(fen) {
+  const position = {};
+  if (!fen) return position;
+  const [rowsPart] = fen.split(" ");
+  const ranks = rowsPart.split("/");
+  for (let r = 0; r < ranks.length; r++) {
+    let file = 0;
+    for (const char of ranks[r]) {
+      if (/[1-8]/.test(char)) {
+        file += parseInt(char, 10);
+      } else {
+        const rank = 8 - r;
+        const square = String.fromCharCode(97 + file) + rank;
+        position[square] = char;
+        file++;
       }
-
-
-
-      return move;
-    } catch (e) {
-      console.error("Illegal move:", e);
-      return null;
     }
-  },
-  [chess]
-);
-
-  // ♟️ Lépés lehelyezése a táblán
- function onDrop(sourceSquare, targetSquare) {
-  console.log("onDrop called!", sourceSquare, "→", targetSquare);
-
-  // mindig frissítsd a chess objektumot a legutóbbi állásra!
-  try {
-    chess.load(fen);
-  } catch (err) {
-    console.error("Failed to sync chess state:", err);
   }
-
-  if (chess.turn() !== orientation[0]) return false;
-  if (players.length < 2) return false;
-
-  const moveData = {
-    from: sourceSquare,
-    to: targetSquare,
-    color: chess.turn(),
-    promotion: "q",
-  };
-
-  const move = makeAMove(moveData);
-  if (move === null) return false;
-
-  socket.emit("move", {
-    move,
-    room,
-    fen: chess.fen(),
-  });
-
-  return true;
+  return position;
 }
 
-  // ♟️ Ellenfél lépésének fogadása
+export default function Game({ players, room, orientation, cleanup, gameType, boardSize }) {
+  const [playersState, setPlayersState] = useState(players || []);
+  const [fen, setFen] = useState(undefined);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalText, setModalText] = useState("");
+
+  const chessRef = useRef(new Chess());
+  const chess = chessRef.current;
+
+  // inicializálás
   useEffect(() => {
-    const handleMove = ({ move, fen }) => {
+    chess.reset();
+    if (gameType === "paraszthaboru") {
+      chess.load("4k3/pppppppp/8/8/8/8/PPPPPPPP/4K3 w - - 0 1");
+    }
+    setFen(chess.fen());
+  }, [gameType]);
+
+  // lépés kezelése
+  const makeAMove = useCallback(
+    (moveData) => {
       try {
-        console.log("♟ Received move from opponent:", move);
+        const move = chess.move(moveData);
+        if (!move) return null;
+        setFen(chess.fen());
+
+        // játék vége ellenőrzés
+        if (chess.isCheckmate()) {
+          const winner = chess.turn() === "w" ? "Black" : "White";
+          setModalTitle("Checkmate!");
+          setModalText(`${winner} wins!`);
+          setModalOpen(true);
+        } else if (chess.isStalemate()) {
+          setModalTitle("Stalemate!");
+          setModalText("It's a draw.");
+          setModalOpen(true);
+        } else if (chess.isInsufficientMaterial()) {
+          setModalTitle("Draw");
+          setModalText("Insufficient material.");
+          setModalOpen(true);
+        } else if (chess.isDraw()) {
+          setModalTitle("Draw");
+          setModalText("50-move rule or repetition.");
+          setModalOpen(true);
+        }
+
+        return move;
+      } catch (e) {
+        console.error("Illegal move:", e);
+        return null;
+      }
+    },
+    [chess]
+  );
+
+  // CustomBoard onMove callback
+  const handleMove = (from, to) => {
+    if (chess.turn() !== orientation[0]) return;
+    if (playersState.length < 2) return;
+    const move = makeAMove({ from, to, promotion: "q" });
+    if (move) {
+      socket.emit("move", { move, room, fen: chess.fen() });
+    }
+  };
+
+  // ellenfél lépése
+  useEffect(() => {
+    const handleMoveSocket = ({ move, fen }) => {
+      try {
         if (fen && fen !== chess.fen()) {
           chess.load(fen);
           setFen(fen);
@@ -136,98 +104,66 @@ function Game({ players, room, orientation, cleanup, gameType }) {
         console.error("Failed to load remote FEN:", err);
       }
     };
-
-    socket.on("move", handleMove);
-    return () => socket.off("move", handleMove);
+    socket.on("move", handleMoveSocket);
+    return () => socket.off("move", handleMoveSocket);
   }, [chess]);
 
-  // 🔌 Ellenfél kilépése
+  // opponentJoined esemény kezelése
+  useEffect(() => {
+    const handleOpponentJoined = (roomData) => {
+      setPlayersState(roomData.players);
+    };
+    socket.on("opponentJoined", handleOpponentJoined);
+    return () => socket.off("opponentJoined", handleOpponentJoined);
+  }, []);
+
+  // disconnect kezelése
   useEffect(() => {
     const handleDisconnect = (player) => {
-      console.log("Player disconnected:", player);
-      setOver(`${player.username} has disconnected`);
+      setModalTitle("Player Disconnected");
+      setModalText(`${player.username} has disconnected`);
+      setModalOpen(true);
     };
-
     socket.on("playerDisconnected", handleDisconnect);
     return () => socket.off("playerDisconnected", handleDisconnect);
   }, []);
 
-  // 🔒 Szoba bezárás
-  useEffect(() => {
-    socket.on("closeRoom", ({ roomId }) => {
-      if (roomId === room) cleanup();
-    });
-  }, [room, cleanup]);
-
-  // 🎨 Megjelenítés
   return (
-    <Stack>
+    <Stack spacing={2} sx={{ pt: 2 }}>
       <Card>
         <CardContent>
           <Typography variant="h5">Room ID: {room}</Typography>
         </CardContent>
       </Card>
 
-      <Stack flexDirection="row" sx={{ pt: 2 }}>
-        <div
-          className="board"
-          style={{ maxWidth: 600, maxHeight: 600, flexGrow: 1 }}
-        >
-          <Chessboard
-            position={fen}
-            onPieceDrop={onDrop}
-            boardOrientation={orientation}
-          />
-        </div>
-
-        {players.length > 0 && (
-          <Box>
-            <List>
-              <ListSubheader>Players</ListSubheader>
-              {players.map((p) => (
-                <ListItem key={p.id}>
-                  <ListItemText primary={p.username} />
-                </ListItem>
-              ))}
-            </List>
-          </Box>
-        )}
-      </Stack>
-
-{/* {over && (
-  <CustomDialog
-    open={true}
-    title="Game Over"
-    contentText={over}
-    handleContinue={() => {
-      socket.emit("closeRoom", { roomId: room });
-      cleanup();
-      setOver("");
-    }}
-  />
-)} */}
-
-<CustomDialog
-  open={Boolean(over)}
-  title="Game Over"
-  contentText={over}
-  handleContinue={() => {
-    // zárjuk le a modalt
-    setOver("");
-
-    // várunk, amíg az Emotion / MUI lezárja az animációt és törli a stílusokat
-    setTimeout(() => {
-      socket.emit("closeRoom", { roomId: room });
-      cleanup();
-    }, 150);
-  }}
+      <Stack flexDirection="row" spacing={2}>
+        <CustomBoard
+  position={fenToPosition(fen)}
+  onMove={handleMove}
+  orientation={orientation}
 />
 
+        <Box>
+          <List>
+            <ListSubheader>Players</ListSubheader>
+            {playersState.map((p) => (
+              <ListItem key={p.id}>
+                <ListItemText primary={p.username} />
+              </ListItem>
+            ))}
+          </List>
+        </Box>
+      </Stack>
 
-
-
+      <CustomDialog
+        open={modalOpen}
+        title={modalTitle}
+        contentText={modalText}
+        handleContinue={() => {
+          setModalOpen(false);
+          cleanup(); // vissza az InitGame kezdőképernyőre
+        }}
+      />
     </Stack>
   );
 }
-
-export default Game;

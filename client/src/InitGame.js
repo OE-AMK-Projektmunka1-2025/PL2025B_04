@@ -3,7 +3,9 @@ import { useState } from "react";
 import CustomDialog from "./components/CustomDialog";
 import socket from "./socket";
 
-export default function InitGame({ setRoom, setOrientation, setPlayers, setGameType }) {
+export default function InitGame({ setRoom, setOrientation, setPlayers, setGameType, setBoardSize }) {
+  // 💡 board size állapot (cols x rows)
+  const [selectedBoardSize, setSelectedBoardSize] = useState("8x8"); // alapértelmezett
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
   const [roomInput, setRoomInput] = useState("");
   const [roomError, setRoomError] = useState("");
@@ -20,15 +22,32 @@ export default function InitGame({ setRoom, setOrientation, setPlayers, setGameT
           label="Játéktípus"
           onChange={(e) => setSelectedType(e.target.value)}
         >
-           <MenuItem value="alap">Alap sakk (klasszikus)</MenuItem>
-          <MenuItem value="paraszthaboru">Parasztháború (8 gyalog vs 8 gyalog)</MenuItem>
-          <MenuItem value="lovakcsata">Lovak csatája (lovak vs lovak)</MenuItem>
-          <MenuItem value="knightmare">Knightmare position</MenuItem>
-            <MenuItem value="transcendental_chess">Transcendental chess</MenuItem>
-               <MenuItem value="chess960">Chess960</MenuItem>
-                 <MenuItem value="mongredien_chess">Mongredien chess</MenuItem>
-                  <MenuItem value="fianchetto_chess">Fianchetto chess</MenuItem>
-                   <MenuItem value="vezér-huszár_chess">Vezér-huszár sakk</MenuItem>
+          <MenuItem value="alap">Alap sakk (klasszikus)</MenuItem>
+          <MenuItem value="paraszthaboru">Parasztháború</MenuItem>
+          <MenuItem value="lovakcsata">Lovak csatája</MenuItem>
+          <MenuItem value="knightmare">Knightmare</MenuItem>
+          <MenuItem value="transcendental_chess">Transcendental chess</MenuItem>
+          <MenuItem value="chess960">Chess960</MenuItem>
+          <MenuItem value="mongredien_chess">Mongredien chess</MenuItem>
+          <MenuItem value="fianchetto_chess">Fianchetto chess</MenuItem>
+          <MenuItem value="vezér-huszár_chess">Vezér-huszár sakk</MenuItem>
+        </Select>
+      </FormControl>
+
+      {/* Játékméret kiválasztás (cols x rows) */}
+      <FormControl sx={{ minWidth: 180, mb: 2 }}>
+        <InputLabel id="board-size-label">Játékméret</InputLabel>
+        <Select
+          labelId="board-size-label"
+          value={selectedBoardSize}
+          label="Játékméret"
+          onChange={(e) => setSelectedBoardSize(e.target.value)}
+        >
+          <MenuItem value="8x8">8x8</MenuItem>
+          <MenuItem value="8x9">8x9</MenuItem>
+          <MenuItem value="8x10">8x10</MenuItem>
+          <MenuItem value="8x11">8x11</MenuItem>
+          <MenuItem value="8x12">8x12</MenuItem>
         </Select>
       </FormControl>
 
@@ -37,12 +56,13 @@ export default function InitGame({ setRoom, setOrientation, setPlayers, setGameT
         variant="contained"
         onClick={() => {
           socket.emit("createRoom", (r) => {
-            console.log(r);
             setRoom(r);
             setOrientation("white");
-            setGameType(selectedType); // 💡 továbbadjuk a kiválasztott típust
+            setGameType(selectedType);
+            setBoardSize(selectedBoardSize); // továbbadjuk cols x rows
           });
         }}
+        sx={{ mb: 1 }}
       >
         Start a game
       </Button>
@@ -62,7 +82,8 @@ export default function InitGame({ setRoom, setOrientation, setPlayers, setGameT
             setRoom(r?.roomId);
             setPlayers(r?.players);
             setOrientation("black");
-            setGameType(selectedType); // 💡 itt is beállítjuk
+            setGameType(selectedType);
+            setBoardSize(selectedBoardSize); // továbbadjuk cols x rows
             setRoomDialogOpen(false);
           });
         }}
