@@ -97,12 +97,18 @@ async function saveRooms(rooms) {
       socket.to(args.roomId).emit('opponentJoined', updatedRoom);
     });
 
+    // socket.on("move", (data) => {
+    //   socket.to(data.room).emit("move", {
+    //     move: data.move,
+    //     fen: data.fen,
+    //   });
+    // });
     socket.on("move", (data) => {
-      socket.to(data.room).emit("move", {
-        move: data.move,
-        fen: data.fen,
-      });
-    });
+  io.to(data.room).emit("move", {
+    board: data.board, // teljes board állapot
+  });
+});
+
 
    socket.on("disconnect", async () => {
   console.log(`${socket.data.username} disconnected`);
@@ -132,4 +138,6 @@ async function saveRooms(rooms) {
   server.listen(port, () => {
     console.log(`✅ Listening on *:${port}`);
   });
+  
+
 })();
