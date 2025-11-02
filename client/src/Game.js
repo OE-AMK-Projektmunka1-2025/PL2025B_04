@@ -1,11 +1,11 @@
-// src/Game.js
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Stack, Card, CardContent, Typography, Box, List, ListItem, ListItemText, ListSubheader } from "@mui/material";
 import socket from "./socket";
 import CustomBoard from "./components/CustomBoard";
 import CustomDialog from "./components/CustomDialog";
 import { 
-  initialBoard, squareToCoord, coordToSquare, getValidMoves, makeMove, getGameStatus, isWhite 
+  initialBoard, squareToCoord, coordToSquare, getValidMoves, makeMove, 
+  getGameStatus, isWhite 
 } from "./components/ChessEngine";
 
 function boardToPosition(board){
@@ -28,15 +28,15 @@ export default function Game({ players, room, orientation, cleanup, gameType, bo
   const [modalTitle, setModalTitle] = useState("");
   const [modalText, setModalText] = useState("");
   const [turnColor, setTurnColor] = useState("white");
+  const [enPassantTarget, setEnPassantTarget] = useState(null);
 
-  // Ref a körön belüli lépéshez
   const hasMovedRef = useRef(false);
+  const playerId = useRef(socket.id);
 
   const rows = parseInt(boardSize?.split("x")[1] || 8);
   const cols = parseInt(boardSize?.split("x")[0] || 8);
 
   const executeMove = (fromX, fromY, toX, toY, piece) => {
-    // Gyalog automatikus promóció
     let promoteTo = null;
     if(piece.toLowerCase() === "p"){
       if((piece === "P" && toX === 0) || (piece === "p" && toX === 7)){
@@ -44,16 +44,39 @@ export default function Game({ players, room, orientation, cleanup, gameType, bo
       }
     }
 
-    const newBoard = makeMove(board, fromX, fromY, toX, toY, promoteTo);
+    // --- En passant logika ---
+    let capturedEnPassant = false;
+    if (piece.toLowerCase() === "p" && enPassantTarget) {
+      if (toX === enPassantTarget.row && toY === enPassantTarget.col) {
+        const dir = piece === "P" ? 1 : -1;
+        board[toX + dir][toY] = null; // leütjük az átlósan "átugrott" gyalogot
+        capturedEnPassant = true;
+      }
+    }
+
+    const newBoard = makeMove(board, fromX, fromY, toX, toY, promoteTo, enPassantTarget);
     const newHistory = [...history, newBoard];
+
+    // Új en passant célmező, ha gyalog két mezőt lépett
+    let newEnPassantTarget = null;
+    if (piece.toLowerCase() === "p" && Math.abs(fromX - toX) === 2) {
+      newEnPassantTarget = { row: (fromX + toX) / 2, col: fromY };
+    }
+
     setBoard(newBoard);
     setHistory(newHistory);
+    setEnPassantTarget(newEnPassantTarget);
     hasMovedRef.current = true;
 
-    // Socketen továbbítás
-    socket.emit("move", { board: newBoard, room });
+    // Socketen küldjük a lépést
+    socket.emit("move", {
+      room,
+      board: newBoard,
+      move: { piece, fromRow: fromX, fromCol: fromY, toRow: toX, toCol: toY },
+      playerId: playerId.current,
+      enPassantTarget: newEnPassantTarget
+    });
 
-    // Játékállapot ellenőrzés
     const status = getGameStatus(newBoard, !isWhite(piece), newHistory);
     if(status.status !== "playing"){
       let title="", text="";
@@ -71,11 +94,9 @@ export default function Game({ players, room, orientation, cleanup, gameType, bo
   };
 
   const handleMove = useCallback((from, to) => {
-    // Csak ha mindkét játékos csatlakozott
     if(playersState.length < 2) return;
 
-    // Csak a soron lévő játékos léphet
-    if(hasMovedRef.current) return;
+    if(hasMovedRef.current) return; // ne lehessen többször lépni
 
     const [fromX, fromY] = squareToCoord(from);
     const [toX, toY] = squareToCoord(to);
@@ -85,26 +106,25 @@ export default function Game({ players, room, orientation, cleanup, gameType, bo
     const wTurn = isWhite(piece);
     if((turnColor === "white" && !wTurn) || (turnColor === "black" && wTurn)) return;
 
-    const validMoves = getValidMoves(board, fromX, fromY);
+    const validMoves = getValidMoves(board, fromX, fromY, enPassantTarget);
     if(!validMoves.some(([x,y]) => x === toX && y === toY)) return;
 
     executeMove(fromX, fromY, toX, toY, piece);
-  }, [board, turnColor, playersState]);
+  }, [board, turnColor, playersState, enPassantTarget]);
 
-  // Socket: ellenfél lépése
+  // 🔁 Socket: másik játékos lépett
   useEffect(() => {
-    const handleMoveSocket = ({ board: newBoard }) => {
+    const handleMoveSocket = ({ board: newBoard, enPassantTarget: newEPTarget, turnColor: nextTurn }) => {
       if(!newBoard) return;
 
-      const newHistory = [...history, newBoard];
       setBoard(newBoard);
-      setHistory(newHistory);
-      setTurnColor(prev => prev === "white" ? "black" : "white");
+      setHistory(prev => [...prev, newBoard]);
+      setTurnColor(nextTurn);
+      setEnPassantTarget(newEPTarget);
       hasMovedRef.current = false;
 
-      // Ellenőrizzük a játék végét
-      const wTurn = !isWhite(newBoard.flat().find(p => p));
-      const status = getGameStatus(newBoard, wTurn, newHistory);
+      const wTurn = nextTurn === "white";
+      const status = getGameStatus(newBoard, wTurn, history);
       if(status.status !== "playing"){
         let title="", text="";
         switch(status.status){
@@ -119,18 +139,19 @@ export default function Game({ players, room, orientation, cleanup, gameType, bo
         setModalOpen(true);
       }
     };
+
     socket.on("move", handleMoveSocket);
     return () => socket.off("move", handleMoveSocket);
   }, [history]);
 
-  // Socket: új játékos csatlakozott
+  // Ellenfél csatlakozott
   useEffect(() => {
     const handleOpponentJoined = roomData => setPlayersState(roomData.players);
     socket.on("opponentJoined", handleOpponentJoined);
     return () => socket.off("opponentJoined", handleOpponentJoined);
   }, []);
 
-  // Socket: játékos kilépett
+  // Játékos kilépett
   useEffect(() => {
     const handleDisconnect = (player) => {
       setModalTitle("Player Disconnected");
