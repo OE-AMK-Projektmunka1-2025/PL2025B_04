@@ -1,11 +1,10 @@
-// src/App.js
 import { useEffect, useState, useCallback } from "react";
 import Container from "@mui/material/Container";
 import Game from "./Game";
 import InitGame from "./InitGame";
 import CustomDialog from "./components/CustomDialog";
 import socket from "./socket";
-import { TextField } from "@mui/material";
+import { TextField, Box } from "@mui/material";
 
 export default function App() {
   const [username, setUsername] = useState("");
@@ -29,11 +28,11 @@ export default function App() {
   }, []);
 
   return (
-    <Container>
+    <Container maxWidth="md" sx={{ py: 4 }}>
       <CustomDialog
         open={!usernameSubmitted}
         handleContinue={() => {
-          if (!username) return;
+          if (!username.trim()) return;
           socket.emit("username", username);
           setUsernameSubmitted(true);
         }}
@@ -52,25 +51,31 @@ export default function App() {
         />
       </CustomDialog>
 
-      {room ? (
-        <Game
-          room={room}
-          orientation={orientation}
-          username={username}
-          players={players}
-          gameType={gameType}
-          boardSize={boardSize}
-          cleanup={cleanup}
-        />
-      ) : (
-        <InitGame
-          setRoom={setRoom}
-          setOrientation={setOrientation}
-          setPlayers={setPlayers}
-          setGameType={setGameType}
-          setBoardSize={setBoardSize}
-        />
-      )}
+      <Box sx={{ mt: 4 }}>
+        {usernameSubmitted && (
+          <>
+            {room ? (
+              <Game
+                room={room}
+                orientation={orientation}
+                username={username}
+                players={players}
+                gameType={gameType}
+                boardSize={boardSize}
+                cleanup={cleanup}
+              />
+            ) : (
+              <InitGame
+                setRoom={setRoom}
+                setOrientation={setOrientation}
+                setPlayers={setPlayers}
+                setGameType={setGameType}
+                setBoardSize={setBoardSize}
+              />
+            )}
+          </>
+        )}
+      </Box>
     </Container>
   );
 }

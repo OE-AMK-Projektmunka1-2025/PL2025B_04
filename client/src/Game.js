@@ -1,29 +1,52 @@
+// src/Game.js
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Stack, Card, CardContent, Typography, Box, List, ListItem, ListItemText, ListSubheader } from "@mui/material";
+import {
+  Stack,
+  Card,
+  CardContent,
+  Typography,
+  Box,
+  List,
+  ListItem,
+  ListItemText,
+  ListSubheader,
+} from "@mui/material";
 import socket from "./socket";
 import CustomBoard from "./components/CustomBoard";
 import CustomDialog from "./components/CustomDialog";
-import { 
-  initialBoard, squareToCoord, coordToSquare, getValidMoves, makeMove, 
-  getGameStatus, isWhite 
+import {
+  initialBoard,
+  squareToCoord,
+  coordToSquare,
+  getValidMoves,
+  makeMove,
+  getGameStatus,
+  isWhite,
 } from "./components/ChessEngine";
 
-function boardToPosition(board){
-  if(!board) return {};
+function boardToPosition(board) {
   const position = {};
-  for(let x=0;x<board.length;x++){
-    for(let y=0;y<board[x].length;y++){
-      const piece = board[x][y];
-      if(piece) position[coordToSquare(x,y)] = piece;
-    }
-  }
+  board.forEach((row, x) =>
+    row.forEach((piece, y) => {
+      if (piece) position[coordToSquare(x, y)] = piece;
+    })
+  );
   return position;
 }
 
-export default function Game({ players, room, orientation, cleanup, gameType, boardSize }) {
+export default function Game({
+  players,
+  room,
+  orientation,
+  cleanup,
+  gameType,
+  boardSize,
+}) {
   const [playersState, setPlayersState] = useState(players || []);
   const [board, setBoard] = useState(() => initialBoard(gameType));
-  const [history, setHistory] = useState([board]);
+  const [history, setHistory] = useState(() => [
+    { board: initialBoard(gameType), wTurn: true, enPassantTarget: null },
+  ]);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
   const [modalText, setModalText] = useState("");
@@ -36,138 +59,221 @@ export default function Game({ players, room, orientation, cleanup, gameType, bo
   const rows = parseInt(boardSize?.split("x")[1] || 8);
   const cols = parseInt(boardSize?.split("x")[0] || 8);
 
-  const executeMove = (fromX, fromY, toX, toY, piece) => {
-    let promoteTo = null;
-    if(piece.toLowerCase() === "p"){
-      if((piece === "P" && toX === 0) || (piece === "p" && toX === 7)){
-        promoteTo = piece === "P" ? "Q" : "q";
+  const openModalForStatus = (status) => {
+    let title = "", text = "";
+
+    // --- Parasztháború-specifikus állapotok ---
+    if (gameType === "paraszthaboru") {
+      if (status.status === "finished") {
+        title = "Game over!";
+        if (status.winner === "White") {
+          text = "White wins!";
+        } else if (status.winner === "Black") {
+          text = "Black wins!";
+        }
+      } else if (status.status === "stalemate") {
+        title = "Nincs több lépés";
+        text = "Döntetlen - egyik fél sem tud szabályos lépést tenni.";
+      }
+    } else {
+      // --- Eredeti sakk-logika ---
+      switch (status.status) {
+        case "checkmate":
+          title = "Checkmate!";
+          text = `${status.winner} wins!`;
+          break;
+        case "stalemate":
+          title = "Stalemate";
+          text = "Game ended in stalemate.";
+          break;
+        case "insufficient":
+          title = "Draw";
+          text = "Draw by insufficient material.";
+          break;
+        case "threefold":
+          title = "Draw";
+          text = "Draw by threefold repetition.";
+          break;
+        case "fifty-move-rule":
+          title = "Draw";
+          text = "Draw by fifty-move rule.";
+          break;
+        default:
+          break;
       }
     }
 
-    // --- En passant logika ---
-    let capturedEnPassant = false;
-    if (piece.toLowerCase() === "p" && enPassantTarget) {
-      if (toX === enPassantTarget.row && toY === enPassantTarget.col) {
-        const dir = piece === "P" ? 1 : -1;
-        board[toX + dir][toY] = null; // leütjük az átlósan "átugrott" gyalogot
-        capturedEnPassant = true;
-      }
-    }
+    setModalTitle(title);
+    setModalText(text);
+    setModalOpen(true);
+  };
 
-    const newBoard = makeMove(board, fromX, fromY, toX, toY, promoteTo, enPassantTarget);
-    const newHistory = [...history, newBoard];
+  const executeMove = (fromX, fromY, toX, toY) => {
+    const piece = board[fromX][fromY];
+    if (!piece) return;
 
-    // Új en passant célmező, ha gyalog két mezőt lépett
-    let newEnPassantTarget = null;
+    const promoteTo =
+      piece.toLowerCase() === "p" &&
+      ((piece === "P" && toX === 0) || (piece === "p" && toX === 7))
+        ? piece === "P"
+          ? "Q"
+          : "q"
+        : null;
+
+    const newBoard = makeMove(
+      board,
+      fromX,
+      fromY,
+      toX,
+      toY,
+      promoteTo,
+      enPassantTarget,
+      gameType
+    );
+
+    let newEnPassant = null;
     if (piece.toLowerCase() === "p" && Math.abs(fromX - toX) === 2) {
-      newEnPassantTarget = { row: (fromX + toX) / 2, col: fromY };
+      newEnPassant = { row: (fromX + toX) / 2, col: fromY };
     }
+
+    const nextWTurn = !(turnColor === "white");
+    const newHistoryEntry = {
+      board: newBoard,
+      wTurn: nextWTurn,
+      enPassantTarget: newEnPassant,
+    };
+    const newHistory = [...history, newHistoryEntry];
 
     setBoard(newBoard);
     setHistory(newHistory);
-    setEnPassantTarget(newEnPassantTarget);
+    setEnPassantTarget(newEnPassant);
     hasMovedRef.current = true;
 
-    // Socketen küldjük a lépést
+    const status = getGameStatus(
+      newBoard,
+      nextWTurn,
+      newHistory,
+      newEnPassant,
+      gameType
+    );
+
     socket.emit("move", {
       room,
       board: newBoard,
       move: { piece, fromRow: fromX, fromCol: fromY, toRow: toX, toCol: toY },
       playerId: playerId.current,
-      enPassantTarget: newEnPassantTarget
+      enPassantTarget: newEnPassant,
+      turnColor: nextWTurn ? "white" : "black",
+      history: newHistory,
     });
 
-    const status = getGameStatus(newBoard, !isWhite(piece), newHistory);
-    if(status.status !== "playing"){
-      let title="", text="";
-      switch(status.status){
-        case "checkmate": title="Checkmate!"; text=`${status.winner} wins!`; break;
-        case "stalemate": title="Stalemate"; text="Game ended in stalemate."; break;
-        case "insufficient": title="Draw"; text="Draw by insufficient material."; break;
-        case "threefold": title="Draw"; text="Draw by threefold repetition."; break;
-        default: break;
-      }
-      setModalTitle(title);
-      setModalText(text);
-      setModalOpen(true);
+    if (status.status !== "playing") {
+      openModalForStatus(status);
+      socket.emit("drawOrMate", { room, status });
+    } else {
+      setTurnColor(nextWTurn ? "white" : "black");
     }
   };
 
-  const handleMove = useCallback((from, to) => {
-    if(playersState.length < 2) return;
+  const handleMove = useCallback(
+    (from, to) => {
+      if (playersState.length < 2 || hasMovedRef.current) return;
+      const [fromX, fromY] = squareToCoord(from);
+      const [toX, toY] = squareToCoord(to);
+      const piece = board[fromX][fromY];
+      if (!piece) return;
 
-    if(hasMovedRef.current) return; // ne lehessen többször lépni
+      const wTurn = isWhite(piece);
+      if ((turnColor === "white" && !wTurn) || (turnColor === "black" && wTurn)) return;
 
-    const [fromX, fromY] = squareToCoord(from);
-    const [toX, toY] = squareToCoord(to);
-    const piece = board[fromX][fromY];
-    if(!piece) return;
+      const validMoves = getValidMoves(board, fromX, fromY, enPassantTarget, gameType);
+      if (!validMoves.some(([x, y]) => x === toX && y === toY)) return;
 
-    const wTurn = isWhite(piece);
-    if((turnColor === "white" && !wTurn) || (turnColor === "black" && wTurn)) return;
+      executeMove(fromX, fromY, toX, toY);
+    },
+    [board, turnColor, playersState, enPassantTarget, history, gameType]
+  );
 
-    const validMoves = getValidMoves(board, fromX, fromY, enPassantTarget);
-    if(!validMoves.some(([x,y]) => x === toX && y === toY)) return;
-
-    executeMove(fromX, fromY, toX, toY, piece);
-  }, [board, turnColor, playersState, enPassantTarget]);
-
-  // 🔁 Socket: másik játékos lépett
   useEffect(() => {
-    const handleMoveSocket = ({ board: newBoard, enPassantTarget: newEPTarget, turnColor: nextTurn }) => {
-      if(!newBoard) return;
+    const handleMoveSocket = ({
+      board: newBoard,
+      enPassantTarget: newEPTarget,
+      turnColor: nextTurn,
+    }) => {
+      if (!newBoard) return;
+      const nextWTurn = nextTurn === "white";
+
+      const newHistoryEntry = {
+        board: newBoard,
+        wTurn: nextWTurn,
+        enPassantTarget: newEPTarget || null,
+      };
+      const newHistory = [...history, newHistoryEntry];
 
       setBoard(newBoard);
-      setHistory(prev => [...prev, newBoard]);
-      setTurnColor(nextTurn);
-      setEnPassantTarget(newEPTarget);
+      setHistory(newHistory);
+      setTurnColor(nextWTurn ? "white" : "black");
+      setEnPassantTarget(newEPTarget || null);
       hasMovedRef.current = false;
 
-      const wTurn = nextTurn === "white";
-      const status = getGameStatus(newBoard, wTurn, history);
-      if(status.status !== "playing"){
-        let title="", text="";
-        switch(status.status){
-          case "checkmate": title="Checkmate!"; text=`${status.winner} wins!`; break;
-          case "stalemate": title="Stalemate"; text="Game ended in stalemate."; break;
-          case "insufficient": title="Draw"; text="Draw by insufficient material."; break;
-          case "threefold": title="Draw"; text="Draw by threefold repetition."; break;
-          default: break;
-        }
-        setModalTitle(title);
-        setModalText(text);
-        setModalOpen(true);
+      const status = getGameStatus(
+        newBoard,
+        nextWTurn,
+        newHistory,
+        newEPTarget || null,
+        gameType
+      );
+      if (status.status !== "playing") openModalForStatus(status);
+    };
+
+    const handleThreefoldRepetition = () => {
+      openModalForStatus({ status: "threefold" });
+    };
+
+    const handleFiftyMoveRule = () => {
+      openModalForStatus({ status: "fifty-move-rule" });
+    };
+
+    const handleDrawOrMate = ({ status }) => {
+      if (status && status.status !== "playing") {
+        openModalForStatus(status);
       }
     };
 
-    socket.on("move", handleMoveSocket);
-    return () => socket.off("move", handleMoveSocket);
-  }, [history]);
+    const handleOpponentJoined = (roomData) => setPlayersState(roomData.players);
 
-  // Ellenfél csatlakozott
-  useEffect(() => {
-    const handleOpponentJoined = roomData => setPlayersState(roomData.players);
-    socket.on("opponentJoined", handleOpponentJoined);
-    return () => socket.off("opponentJoined", handleOpponentJoined);
-  }, []);
-
-  // Játékos kilépett
-  useEffect(() => {
     const handleDisconnect = (player) => {
       setModalTitle("Player Disconnected");
       setModalText(`${player.username} has disconnected`);
       setModalOpen(true);
     };
+
+    socket.on("move", handleMoveSocket);
+    socket.on("drawOrMate", handleDrawOrMate);
+    socket.on("threefoldRepetition", handleThreefoldRepetition);
+    socket.on("fiftyMoveRule", handleFiftyMoveRule);
+    socket.on("opponentJoined", handleOpponentJoined);
     socket.on("playerDisconnected", handleDisconnect);
-    return () => socket.off("playerDisconnected", handleDisconnect);
-  }, []);
+
+    return () => {
+      socket.off("move", handleMoveSocket);
+      socket.off("drawOrMate", handleDrawOrMate);
+      socket.off("threefoldRepetition", handleThreefoldRepetition);
+      socket.off("fiftyMoveRule", handleFiftyMoveRule);
+      socket.off("opponentJoined", handleOpponentJoined);
+      socket.off("playerDisconnected", handleDisconnect);
+    };
+  }, [history, gameType]);
 
   return (
-    <Stack spacing={2} sx={{ pt:2 }}>
+    <Stack spacing={2} sx={{ pt: 2 }}>
       <Card>
         <CardContent>
           <Typography variant="h5">Room ID: {room}</Typography>
           <Typography variant="body2">Current turn: {turnColor}</Typography>
+          <Typography variant="body2">
+            Game type: {gameType === "paraszthaboru" ? "Classic pawn war" : "Default chess"}
+          </Typography>
         </CardContent>
       </Card>
 
@@ -183,8 +289,10 @@ export default function Game({ players, room, orientation, cleanup, gameType, bo
         <Box>
           <List>
             <ListSubheader>Players</ListSubheader>
-            {playersState.map(p => (
-              <ListItem key={p.id}><ListItemText primary={p.username} /></ListItem>
+            {playersState.map((p) => (
+              <ListItem key={p.id}>
+                <ListItemText primary={p.username} />
+              </ListItem>
             ))}
           </List>
         </Box>
@@ -194,7 +302,10 @@ export default function Game({ players, room, orientation, cleanup, gameType, bo
         open={modalOpen}
         title={modalTitle}
         contentText={modalText}
-        handleContinue={() => { setModalOpen(false); cleanup(); }}
+        handleContinue={() => {
+          setModalOpen(false);
+          cleanup();
+        }}
       />
     </Stack>
   );

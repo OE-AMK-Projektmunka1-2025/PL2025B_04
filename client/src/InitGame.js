@@ -14,16 +14,16 @@ export default function InitGame({ setRoom, setOrientation, setPlayers, setGameT
   return (
     <Stack justifyContent="center" alignItems="center" sx={{py:1,height:"100vh"}}>
       <FormControl sx={{minWidth:240,mb:2}}>
-        <InputLabel>Játéktípus</InputLabel>
+        <InputLabel>Game type</InputLabel>
         <Select value={selectedType} onChange={(e)=>setSelectedType(e.target.value)}>
-          <MenuItem value="alap">Alap sakk</MenuItem>
-          <MenuItem value="paraszthaboru">Parasztháború</MenuItem>
-          <MenuItem value="lovakcsata">Lovak csatája</MenuItem>
+          <MenuItem value="alap">Default chess</MenuItem>
+          <MenuItem value="paraszthaboru">Classic pawn war</MenuItem>
+          
         </Select>
       </FormControl>
 
       <FormControl sx={{minWidth:180,mb:2}}>
-        <InputLabel>Játékméret</InputLabel>
+        <InputLabel>Board size</InputLabel>
         <Select value={selectedBoardSize} onChange={(e)=>setSelectedBoardSize(e.target.value)}>
           <MenuItem value="8x8">8x8</MenuItem>
         </Select>
