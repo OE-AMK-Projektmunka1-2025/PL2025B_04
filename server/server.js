@@ -1,4 +1,4 @@
-// server.js
+// server/server.js
 const express = require("express");
 const { Server } = require("socket.io");
 const { v4: uuidV4 } = require("uuid");
@@ -58,26 +58,29 @@ async function saveRooms(rooms) {
 
     // --- CREATE ROOM ---
     socket.on("createRoom", async (callback, gameType = "alap") => {
-      const roomId = uuidV4();
-      await socket.join(roomId);
-      rooms.set(roomId, {
-        roomId,
-        players: [
-          { id: socket.id, username: socket.data?.username, color: "white" },
-        ],
-        board: null,
-        turnColor: "white",
-        hasMoved: {},
-        enPassantTarget: null,
-        positionHistory: [],
-        threefoldDeclared: false,
-        halfmoveClock: 0,
-        fiftyDeclared: false,
-        gameType,
-      });
-      await saveRooms(rooms);
-      callback(roomId);
-      console.log(`🆕 Room created: ${roomId} (${gameType})`);
+      try {
+        const roomId = uuidV4();
+        await socket.join(roomId);
+        rooms.set(roomId, {
+          roomId,
+          players: [{ id: socket.id, username: socket.data?.username, color: "white" }],
+          board: null,
+          turnColor: "white",
+          hasMoved: {},
+          enPassantTarget: null,
+          positionHistory: [],
+          threefoldDeclared: false,
+          halfmoveClock: 0,
+          fiftyDeclared: false,
+          gameType,
+        });
+        await saveRooms(rooms);
+        if (typeof callback === "function") callback(roomId);
+        console.log(`🆕 Room created: ${roomId} (${gameType})`);
+      } catch (e) {
+        console.error("createRoom error:", e);
+        if (typeof callback === "function") callback(null);
+      }
     });
 
     // --- JOIN ROOM ---
@@ -119,12 +122,12 @@ async function saveRooms(rooms) {
       if (!game) return;
 
       const isPeasantWar = game.gameType === "paraszthaboru";
+      const isQueenBattle = game.gameType === "vezerharc";
+      const isKingHunt = game.gameType === "kiralyvadaszat";
+
 
       if (game.players.length < 2) {
-        io.to(playerId).emit(
-          "errorMessage",
-          "Mindkét játékosnak csatlakoznia kell, mielőtt léphettek."
-        );
+        io.to(playerId).emit("errorMessage", "Mindkét játékosnak csatlakoznia kell, mielőtt léphettek.");
         return;
       }
 
@@ -160,22 +163,18 @@ async function saveRooms(rooms) {
           turnColor: game.turnColor,
         });
 
-        // --- Győzelem: ha gyalog beért az alapsorra vagy az ellenfél összes gyalogját leütötték ---
         const whiteReached = board[0]?.some((p) => p === "P");
         const blackReached = board[7]?.some((p) => p === "p");
 
-        let whitePawns = 0;
-        let blackPawns = 0;
-        for (let i = 0; i < 8; i++) {
+        let whitePawns = 0, blackPawns = 0;
+        for (let i = 0; i < 8; i++)
           for (let j = 0; j < 8; j++) {
             if (board[i][j] === "P") whitePawns++;
             if (board[i][j] === "p") blackPawns++;
           }
-        }
 
         if (whiteReached || blackReached || whitePawns === 0 || blackPawns === 0) {
           let winner = null;
-
           if (whiteReached || blackPawns === 0) winner = "White";
           if (blackReached || whitePawns === 0) winner = "Black";
 
@@ -189,56 +188,568 @@ async function saveRooms(rooms) {
           return;
         }
 
-        // --- Ha a következő játékos nem tud lépni, a másik nyer ---
-        const nextIsWhite = game.turnColor === "white";
-        let canMove = false;
-        for (let i = 0; i < 8; i++) {
-          for (let j = 0; j < 8; j++) {
-            const piece = board[i][j];
-            if (!piece) continue;
-            const isWhitePiece = piece === piece.toUpperCase();
-            if (isWhitePiece !== nextIsWhite) continue;
+       // ha a következő játékosnak csak 1 gyalogja maradt és nem tud szabályos lépést tenni → vége
+ // --- 🔥 ÚJ: ha a következő félnek csak 1 gyalogja maradt és nem tud lépni ---
+const nextIsWhite = game.turnColor === "white";
+const whitePawnPositions = [];
+const blackPawnPositions = [];
 
-            const dir = isWhitePiece ? -1 : 1;
-            const ahead = board[i + dir]?.[j];
-            if (ahead === null) canMove = true;
+for (let i = 0; i < 8; i++) {
+  for (let j = 0; j < 8; j++) {
+    if (board[i][j] === "P") whitePawnPositions.push([i, j]);
+    if (board[i][j] === "p") blackPawnPositions.push([i, j]);
+  }
+}
 
-            for (const dy of [-1, 1]) {
-              const x = i + dir;
-              const y = j + dy;
-              if (x >= 0 && x < 8 && y >= 0 && y < 8) {
-                const t = board[x][y];
-                if (t && (isWhitePiece !== (t === t.toUpperCase()))) canMove = true;
-              }
-            }
-          }
+const singlePawnLeft =
+  (nextIsWhite && whitePawnPositions.length === 1) ||
+  (!nextIsWhite && blackPawnPositions.length === 1);
+
+console.log("♟️ Next turn:", nextIsWhite ? "White" : "Black");
+console.log("White pawns:", whitePawnPositions.length, "Black pawns:", blackPawnPositions.length);
+console.log("Single pawn left?", singlePawnLeft);
+
+if (singlePawnLeft) {
+  const pawns = nextIsWhite ? whitePawnPositions : blackPawnPositions;
+  let canMove = false;
+
+  for (const [i, j] of pawns) {
+    const dir = nextIsWhite ? -1 : 1;
+
+    // előrelépés
+    if (i + dir >= 0 && i + dir < 8 && board[i + dir][j] === null) {
+      canMove = true;
+    }
+
+    // ütés átlósan
+    for (const dy of [-1, 1]) {
+      const x = i + dir;
+      const y = j + dy;
+      if (x >= 0 && x < 8 && y >= 0 && y < 8) {
+        const target = board[x][y];
+        if (target && (nextIsWhite !== (target === target.toUpperCase()))) {
+          canMove = true;
         }
+      }
+    }
+  }
 
-        if (!canMove) {
-          const winner = nextIsWhite ? "Black" : "White";
-          io.to(room).emit("drawOrMate", {
-            status: { status: "finished", winner },
-          });
-          console.log(`🪖 Parasztháború vége: ${winner} nyert (ellenfél nem tud lépni)`);
+  console.log("Can move?", canMove);
 
-          rooms.set(room, game);
-          await saveRooms(rooms);
-          return; // <<< Itt a kulcs: megállítja a további kódot
-        }
+  if (!canMove) {
+    const winner = nextIsWhite ? "Black" : "White";
+    io.to(room).emit("drawOrMate", {
+      status: { status: "finished", winner, reason: "no-move" },
+    });
+    console.log(
+      `🪖 Parasztháború vége: ${winner} nyert (ellenfél egyetlen gyalogja beszorult)`
+    );
+    rooms.set(room, game);
+    await saveRooms(rooms);
+    return;
+  }
+}
+
+
+
+
 
         rooms.set(room, game);
         await saveRooms(rooms);
         return;
       }
 
+      // --- VEZÉRHARC LOGIKA (Queen vs 8 Pawns) ---
+      if (isQueenBattle) {
+        game.board = board;
+        game.hasMoved[playerId] = true;
+        game.turnColor = playerColor === "white" ? "black" : "white";
+
+        socket.to(room).emit("move", {
+          board: game.board,
+          turnColor: game.turnColor,
+        });
+
+        let whiteQueenAlive = false;
+        let blackPawns = 0;
+        let blackPromotedOrReached = false;
+
+        for (let i = 0; i < 8; i++) {
+          for (let j = 0; j < 8; j++) {
+            const p = board[i][j];
+            if (p === "Q") whiteQueenAlive = true;
+            if (p === "p") blackPawns++;
+            // ⚙️ FIX: fekete gyalog elérte a fehér alapvonalat (0. sor)
+            if ((i === 0 || i === 7) && (p === "p" || p === "q")) {
+              console.log("⚫ Black pawn reached promotion row:", i, j);
+              blackPromotedOrReached = true;
+            }
+          }
+        }
+
+        let winner = null;
+        let reason = "";
+
+        if (!whiteQueenAlive) {
+          winner = "Black";
+          reason = "queen_captured";
+        } else if (blackPawns === 0) {
+          winner = "White";
+          reason = "all_pawns_captured";
+        } else if (blackPromotedOrReached) {
+          winner = "Black";
+          reason = "pawn_promoted";
+        }
+
+        if (winner) {
+          io.to(room).emit("drawOrMate", {
+            status: { status: "finished", winner, reason },
+          });
+
+          const message =
+            winner === "Black" && reason === "pawn_promoted"
+              ? "🏴 Black wins — a pawn reached promotion!"
+              : winner === "White"
+              ? "⚪ White wins — all pawns have been taken!"
+              : "🏴 Black wins — the Queen was captured!";
+
+          console.log(`👑 Vézerharc vége: ${message} (room: ${room})`);
+          rooms.set(room, game);
+          await saveRooms(rooms);
+          return;
+        }
+
+
+
+
+        rooms.set(room, game);
+        await saveRooms(rooms);
+        return;
+      }
+
+      // --- BÁSTYAHARC LOGIKA (Rook vs 5 Pawns) ---
+if (game.gameType === "bastyaharc") {
+  game.board = board;
+  game.hasMoved[playerId] = true;
+  game.turnColor = playerColor === "white" ? "black" : "white";
+
+  socket.to(room).emit("move", {
+    board: game.board,
+    turnColor: game.turnColor,
+  });
+
+  let rookAlive = false;
+  let pawns = [];
+
+  // keresés a táblán
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = board[i][j];
+      if (p === "R") rookAlive = true;
+      if (p === "p") pawns.push([i, j]);
+    }
+  }
+
+  let winner = null;
+  let reason = "";
+
+  // ha a bástyát leütötték → gyalogok nyernek
+  if (!rookAlive) {
+    winner = "Black";
+    reason = "rook_captured";
+  }
+
+  // ha az összes gyalog elfogyott → bástya nyer
+  if (pawns.length === 0) {
+    winner = "White";
+    reason = "all_pawns_captured";
+  }
+
+  // ha egy gyalog biztonságosan eléri az utolsó sort
+  if (!winner) {
+    for (const [i, j] of pawns) {
+      if (i === 7) {
+        let safe = true;
+        // nézd meg, hogy a bástya tudná-e azonnal ütni
+        // vízszintesen balra
+        for (let y = j - 1; y >= 0; y--) {
+          if (board[i][y] === "R") safe = false;
+          if (board[i][y]) break;
+        }
+        // vízszintesen jobbra
+        for (let y = j + 1; y < 8; y++) {
+          if (board[i][y] === "R") safe = false;
+          if (board[i][y]) break;
+        }
+        // függőlegesen felfelé
+        for (let x = i - 1; x >= 0; x--) {
+          if (board[x][j] === "R") safe = false;
+          if (board[x][j]) break;
+        }
+
+        if (safe) {
+          winner = "Black";
+          reason = "safe_pawn_promoted";
+          break;
+        }
+      }
+    }
+  }
+
+  if (winner) {
+    io.to(room).emit("drawOrMate", {
+      status: { status: "finished", winner, reason },
+    });
+
+    const message =
+      winner === "Black" && reason === "safe_pawn_promoted"
+        ? "⚫ Black wins — a pawn reached the promotion!"
+        : winner === "Black" && reason === "rook_captured"
+        ? "⚫ Black wins — the Rook has been captured!"
+        : "⚪ White wins — all pawns have been taken!";
+
+    console.log(`🏰 Bástyaharc vége: ${message} (room: ${room})`);
+    rooms.set(room, game);
+    await saveRooms(rooms);
+    return;
+  }
+
+  rooms.set(room, game);
+  await saveRooms(rooms);
+  return;
+}
+
+
+// --- FUTÓHARC LOGIKA (Bishop vs 3 Pawns) ---
+if (game.gameType === "futoharc") {
+  game.board = board;
+  game.hasMoved[playerId] = true;
+  game.turnColor = playerColor === "white" ? "black" : "white";
+
+  socket.to(room).emit("move", {
+    board: game.board,
+    turnColor: game.turnColor,
+  });
+
+  let bishopAlive = false;
+  let pawns = [];
+
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = board[i][j];
+      if (p === "B") bishopAlive = true;
+      if (p === "p") pawns.push([i, j]);
+    }
+  }
+
+  let winner = null;
+  let reason = "";
+
+  if (!bishopAlive) {
+    winner = "Black";
+    reason = "bishop_captured";
+  }
+
+  if (pawns.length === 0) {
+    winner = "White";
+    reason = "all_pawns_captured";
+  }
+
+  if (!winner) {
+    for (const [i, j] of pawns) {
+      if (i === 7) {
+        let safe = true;
+        const dirs = [
+          [-1, -1],
+          [-1, 1],
+          [1, -1],
+          [1, 1],
+        ];
+        for (const [dx, dy] of dirs) {
+          for (let k = 1; k < 8; k++) {
+            const x = i + dx * k;
+            const y = j + dy * k;
+            if (x < 0 || x > 7 || y < 0 || y > 7) break;
+            if (board[x][y] === "B") safe = false;
+            if (board[x][y]) break;
+          }
+        }
+        if (safe) {
+          winner = "Black";
+          reason = "safe_pawn_promoted";
+          break;
+        }
+      }
+    }
+  }
+
+  if (winner) {
+    io.to(room).emit("drawOrMate", {
+      status: { status: "finished", winner, reason },
+    });
+
+    const message =
+      winner === "Black" && reason === "safe_pawn_promoted"
+        ? "⚫ Black wins — a pawn reached the promotion!"
+        : winner === "Black" && reason === "bishop_captured"
+        ? "⚫ Black wins — the Bishop has been captured!"
+        : "⚪ White wins — all pawns have been taken!";
+
+    console.log(`🏹 Futóharc vége: ${message} (room: ${room})`);
+    rooms.set(room, game);
+    await saveRooms(rooms);
+    return;
+  }
+
+  rooms.set(room, game);
+  await saveRooms(rooms);
+  return;
+}
+
+
+// --- HUSZÁROK VS GYALOGOK LOGIKA (2 Knights vs 3 Pawns) ---
+if (game.gameType === "huszarok_vs_gyalogok") {
+  game.board = board;
+  game.hasMoved[playerId] = true;
+  game.turnColor = playerColor === "white" ? "black" : "white";
+
+  socket.to(room).emit("move", {
+    board: game.board,
+    turnColor: game.turnColor,
+  });
+
+  let knights = [];
+  let pawns = [];
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = board[i][j];
+      if (p === "n") knights.push([i, j]);
+      if (p === "P") pawns.push([i, j]);
+    }
+  }
+
+  let winner = null;
+  let reason = "";
+
+  // ha a huszárokat leütötték
+  if (knights.length === 0) {
+    winner = "White";
+    reason = "knights_captured";
+  }
+
+  // ha minden gyalog elfogyott
+  if (pawns.length === 0) {
+    winner = "Black";
+    reason = "all_pawns_captured";
+  }
+
+  // ha gyalog biztonságosan beér
+  if (!winner) {
+    for (const [i, j] of pawns) {
+      if (i === 0) {
+        let safe = true;
+        for (const [kx, ky] of knights) {
+          const moves = [
+            [kx + 2, ky + 1],
+            [kx + 2, ky - 1],
+            [kx - 2, ky + 1],
+            [kx - 2, ky - 1],
+            [kx + 1, ky + 2],
+            [kx + 1, ky - 2],
+            [kx - 1, ky + 2],
+            [kx - 1, ky - 2],
+          ];
+          for (const [mx, my] of moves) {
+            if (mx === i && my === j) safe = false;
+          }
+        }
+        if (safe) {
+          winner = "White";
+          reason = "safe_pawn_promoted";
+          break;
+        }
+      }
+    }
+  }
+
+  if (winner) {
+    io.to(room).emit("drawOrMate", {
+      status: { status: "finished", winner, reason },
+    });
+
+    const message =
+      winner === "White" && reason === "safe_pawn_promoted"
+        ? "⚪ White wins — a pawn reached the promotion!"
+        : winner === "White" && reason === "knights_captured"
+        ? "⚪ White wins — both Knights have been captured!"
+        : "⚫ Black wins — all pawns have been taken!";
+
+    console.log(`🐴 Huszárharc vége: ${message} (room: ${room})`);
+    rooms.set(room, game);
+    await saveRooms(rooms);
+    return;
+  }
+
+  rooms.set(room, game);
+  await saveRooms(rooms);
+  return;
+}
+
+
+
+// --- VEZÉR VS HUSZÁR LOGIKA ---
+if (game.gameType === "queen_vs_knight") {
+  game.board = board;
+  game.hasMoved[playerId] = true;
+  game.turnColor = playerColor === "white" ? "black" : "white";
+
+  socket.to(room).emit("move", {
+    board: game.board,
+    turnColor: game.turnColor,
+  });
+
+  let queenAlive = false;
+  let knightAlive = false;
+
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = board[i][j];
+      if (p === "Q") queenAlive = true;
+      if (p === "n") knightAlive = true;
+    }
+  }
+
+  let winner = null;
+  let reason = "";
+
+  if (!queenAlive) {
+    winner = "Black";
+    reason = "queen_captured";
+  } else if (!knightAlive) {
+    winner = "White";
+    reason = "knight_captured";
+  }
+
+  if (winner) {
+    io.to(room).emit("drawOrMate", {
+      status: { status: "finished", winner, reason },
+    });
+
+    const message =
+      winner === "White"
+        ? "⚪ White wins — the Knight has been captured!"
+        : "⚫ Black wins — the Queen has been captured!";
+
+    console.log(`👑♞ Vezér–Huszár vége: ${message} (room: ${room})`);
+    rooms.set(room, game);
+    await saveRooms(rooms);
+    return;
+  }
+
+  rooms.set(room, game);
+  await saveRooms(rooms);
+  return;
+}
+
+
+// --- KIRÁLYVADÁSZAT LOGIKA (világos vs egy király) ---
+if (isKingHunt) {
+  game.board = board;
+  game.hasMoved[playerId] = true;
+  game.turnColor = playerColor === "white" ? "black" : "white";
+
+  socket.to(room).emit("move", {
+    board: game.board,
+    turnColor: game.turnColor,
+  });
+
+  // fekete király pozíció keresése
+  let blackKingPos = null;
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      if (board[i][j] === "k") blackKingPos = [i, j];
+    }
+  }
+
+  // ha nincs király (extrém eset)
+  if (!blackKingPos) {
+    io.to(room).emit("drawOrMate", {
+      status: { status: "finished", winner: "White", reason: "checkmate" },
+    });
+    console.log("👑 King Hunt vége: White wins (king removed)");
+    rooms.set(room, game);
+    await saveRooms(rooms);
+    return;
+  }
+
+  // sakkban van-e
+  const inCheck = (() => {
+    const [kx, ky] = blackKingPos;
+    for (let i = 0; i < 8; i++) {
+      for (let j = 0; j < 8; j++) {
+        const p = board[i][j];
+        if (!p || p === "k" || p === "K") continue;
+        if (p === p.toUpperCase()) {
+          const moves = getRawMoves(board, i, j);
+          for (const [x, y] of moves) {
+            if (x === kx && y === ky) return true;
+          }
+        }
+      }
+    }
+    return false;
+  })();
+
+  // tud-e lépni
+  const [kx, ky] = blackKingPos;
+  let canMove = false;
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      const x = kx + dx, y = ky + dy;
+      if (x < 0 || x > 7 || y < 0 || y > 7) continue;
+      const target = board[x][y];
+      if (!target || target === target.toUpperCase()) {
+        const test = board.map((r) => [...r]);
+        test[kx][ky] = null;
+        test[x][y] = "k";
+        // ha az új pozícióban nincs sakkban, akkor tud lépni
+        if (!isKingInCheck(test, false)) canMove = true;
+      }
+    }
+  }
+
+  if (!canMove) {
+    if (inCheck) {
+      io.to(room).emit("drawOrMate", {
+        status: { status: "finished", winner: "White", reason: "checkmate" },
+      });
+      console.log("♔ King Hunt vége: White wins by checkmate");
+    } else {
+      io.to(room).emit("drawOrMate", {
+        status: { status: "finished", winner: "Draw", reason: "stalemate" },
+      });
+      console.log("🕊️ King Hunt vége: stalemate (patt)");
+    }
+    rooms.set(room, game);
+    await saveRooms(rooms);
+    return;
+  }
+
+  rooms.set(room, game);
+  await saveRooms(rooms);
+  return;
+}
+
+
+
+
+
       // --- EREDTI SAKK-LOGIKA ---
       if (move && move.piece && move.piece.toLowerCase() === "p") {
         const diff = Math.abs(move.fromRow - move.toRow);
         if (diff === 2) {
-          game.enPassantTarget = {
-            row: (move.fromRow + move.toRow) / 2,
-            col: move.fromCol,
-          };
+          game.enPassantTarget = { row: (move.fromRow + move.toRow) / 2, col: move.fromCol };
         } else {
           game.enPassantTarget = null;
         }
@@ -310,7 +821,7 @@ async function saveRooms(rooms) {
 
     // --- DISCONNECT ---
     socket.on("disconnect", async () => {
-      console.log(`${socket.data.username} disconnected`);
+      console.log(`${socket.data.username || socket.id} disconnected`);
 
       rooms.forEach((room, roomId) => {
         const stillInRoom = room.players.filter((p) => p.id !== socket.id);
@@ -322,7 +833,7 @@ async function saveRooms(rooms) {
             rooms.set(roomId, { ...room, players: stillInRoom });
             stillInRoom.forEach((p) => {
               io.to(p.id).emit("playerDisconnected", {
-                username: socket.data.username,
+                username: socket.data.username || socket.id,
               });
             });
           }
@@ -333,7 +844,8 @@ async function saveRooms(rooms) {
     });
   });
 
-  server.listen(port, () => {
-    console.log(`✅ Listening on *:${port}`);
+  // FONTOS: IPv4 bind, hogy ne ütközz az IPv6-only dual-stack változással
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`✅ Listening on 0.0.0.0:${port}`);
   });
 })();

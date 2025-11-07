@@ -1,6 +1,6 @@
 import { io } from "socket.io-client";
 
-const socket = io("http://[2001:41d0:701:1100::a8c0]:8080", {
+const socket = io("http://54.38.157.7:8080", {
   transports: ["websocket"],
   withCredentials: true,
 });

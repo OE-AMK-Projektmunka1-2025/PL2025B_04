@@ -59,25 +59,161 @@ export default function Game({
   const rows = parseInt(boardSize?.split("x")[1] || 8);
   const cols = parseInt(boardSize?.split("x")[0] || 8);
 
+  // ----------- MODÁL MEGJELENÍTÉS ----------- //
   const openModalForStatus = (status) => {
-    let title = "", text = "";
+  let title = "", text = "";
 
-    // --- Parasztháború-specifikus állapotok ---
-    if (gameType === "paraszthaboru") {
+  // --- Parasztháború logika ---
+  if (gameType === "paraszthaboru") {
+    const reason = status?.reason;
+    if (status.status === "finished") {
+      title = "Game over!";
+      if (reason === "no-move") {
+        // egyik félnek csak 1 gyalogja maradt és/vagy nem tud legálisan lépni
+        text =
+          status.winner === "White"
+            ? "White wins — Black cannot move."
+            : "Black wins — White cannot move.";
+      } else {
+        // normál beérés/elfogyás esetek
+        text = status.winner === "White" ? "White wins!" : "Black wins!";
+      }
+    } else if (status.status === "stalemate") {
+      title = "Game over!";
+      text = "Draw - egyik fél sem tud szabályos lépést tenni.";
+    }
+  }
+
+    // --- Vezérharc logika ---
+    else if (gameType === "vezerharc") {
       if (status.status === "finished") {
         title = "Game over!";
-        if (status.winner === "White") {
-          text = "White wins!";
-        } else if (status.winner === "Black") {
-          text = "Black wins!";
+        if (status.reason === "queen_captured") {
+          text = "Black wins — the Queen has been captured!";
+        } else if (status.reason === "all_pawns_captured") {
+          text = "White wins — all pawns have been taken!";
+        } else if (status.reason === "pawn_promoted") {
+          text = "Black wins — a pawn reached promotion!";
+        } else {
+          text = status.winner === "Black" ? "Black wins!" : "White wins!";
         }
-      } else if (status.status === "stalemate") {
-        title = "Nincs több lépés";
-        text = "Döntetlen - egyik fél sem tud szabályos lépést tenni.";
+      } else {
+        title = "Game in progress";
+        text = "Keep fighting!";
       }
+    }
+
+
+    // --- Bástyaharc logika ---
+else if (gameType === "bastyaharc") {
+  if (status.status === "finished") {
+    title = "Game over!";
+    if (status.reason === "rook_captured") {
+      text = "Black wins — the Rook has been captured!";
+    } else if (status.reason === "safe_pawn_promoted") {
+      text = "Black wins — a pawn reached the promotion!";
+    } else if (status.reason === "all_pawns_captured") {
+      text = "White wins — all pawns have been taken!";
     } else {
-      // --- Eredeti sakk-logika ---
+      text = status.winner === "Black" ? "Black wins!" : "White wins!";
+    }
+  } else {
+    title = "Game in progress";
+    text = "Keep fighting!";
+  }
+}
+
+// --- Futóharc logika ---
+else if (gameType === "futoharc") {
+  if (status.status === "finished") {
+    title = "Game over!";
+    if (status.reason === "bishop_captured") {
+      text = "Black wins — the Bishop has been captured!";
+    } else if (status.reason === "safe_pawn_promoted") {
+      text = "Black wins — a pawn reached the promotion!";
+    } else if (status.reason === "all_pawns_captured") {
+      text = "White wins — all pawns have been taken!";
+    } else {
+      text = status.winner === "Black" ? "Black wins!" : "White wins!";
+    }
+  } else {
+    title = "Game in progress";
+    text = "Keep fighting!";
+  }
+}
+
+
+// --- Huszárok vs gyalogok logika ---
+else if (gameType === "huszarok_vs_gyalogok") {
+  if (status.status === "finished") {
+    title = "Game over!";
+    if (status.reason === "knights_captured") {
+      text = "White wins — both Knights have been captured!";
+    } else if (status.reason === "safe_pawn_promoted") {
+      text = "White wins — a pawn reached the promotion!";
+    } else if (status.reason === "all_pawns_captured") {
+      text = "Black wins — all pawns have been taken!";
+    } else {
+      text = status.winner === "White" ? "White wins!" : "Black wins!";
+    }
+  } else {
+    title = "Game in progress";
+    text = "Keep fighting!";
+  }
+}
+
+
+// --- Vezér vs Huszár logika ---
+else if (gameType === "queen_vs_knight") {
+  if (status.status === "finished") {
+    title = "Game over!";
+    if (status.reason === "queen_captured") {
+      text = "Black wins — the Queen has been captured!";
+    } else if (status.reason === "knight_captured") {
+      text = "White wins — the Knight has been captured!";
+    } else {
+      text = status.winner === "White" ? "White wins!" : "Black wins!";
+    }
+  } else {
+    title = "Game in progress";
+    text = "Try to outmaneuver your opponent!";
+  }
+}
+
+// --- Világos vs Sötét király logika ---
+else if (gameType === "kiralyvadaszat") {
+  if (status.status === "finished") {
+    title = "Game over!";
+  
+    if (status.reason === "checkmate") {
+     title = "Checkmate!";
+    text = "White wins by checkmate.";
+  
+   } else if (status.reason === "stalemate") {
+     text = "Draw — the Black King achieved stalemate!";
+   } else {
+     text = status.winner === "White" ? "White wins!" : "Draw!";
+   }
+  } else {
+    title = "King Hunt in progress";
+    text = "Checkmate or stalemate — the hunt continues!";
+  }
+}
+
+
+
+    // --- Alap sakk logika ---
+    else {
       switch (status.status) {
+         case "finished":
+    if (status.reason === "checkmate") {
+      title = "Checkmate!";
+      text = `${status.winner} wins by checkmate.`;
+      break;
+    }
+    // ha más okkal finished, essen vissza az általános logikára
+     // (pl. már kezeltük fent a speciális játékmódokban)
+     break;
         case "checkmate":
           title = "Checkmate!";
           text = `${status.winner} wins!`;
@@ -108,18 +244,12 @@ export default function Game({
     setModalOpen(true);
   };
 
+  // ----------- LÉPÉS VÉGREHAJTÁSA ----------- //
   const executeMove = (fromX, fromY, toX, toY) => {
     const piece = board[fromX][fromY];
     if (!piece) return;
 
-    const promoteTo =
-      piece.toLowerCase() === "p" &&
-      ((piece === "P" && toX === 0) || (piece === "p" && toX === 7))
-        ? piece === "P"
-          ? "Q"
-          : "q"
-        : null;
-
+    const promoteTo = null;
     const newBoard = makeMove(
       board,
       fromX,
@@ -175,6 +305,7 @@ export default function Game({
     }
   };
 
+  // ----------- KLIENS OLDALI MOZGÁSKEZELÉS ----------- //
   const handleMove = useCallback(
     (from, to) => {
       if (playersState.length < 2 || hasMovedRef.current) return;
@@ -194,6 +325,7 @@ export default function Game({
     [board, turnColor, playersState, enPassantTarget, history, gameType]
   );
 
+  // ----------- SOCKET ESEMÉNYEK ----------- //
   useEffect(() => {
     const handleMoveSocket = ({
       board: newBoard,
@@ -226,22 +358,12 @@ export default function Game({
       if (status.status !== "playing") openModalForStatus(status);
     };
 
-    const handleThreefoldRepetition = () => {
-      openModalForStatus({ status: "threefold" });
-    };
-
-    const handleFiftyMoveRule = () => {
-      openModalForStatus({ status: "fifty-move-rule" });
-    };
-
+    const handleThreefoldRepetition = () => openModalForStatus({ status: "threefold" });
+    const handleFiftyMoveRule = () => openModalForStatus({ status: "fifty-move-rule" });
     const handleDrawOrMate = ({ status }) => {
-      if (status && status.status !== "playing") {
-        openModalForStatus(status);
-      }
+      if (status && status.status !== "playing") openModalForStatus(status);
     };
-
     const handleOpponentJoined = (roomData) => setPlayersState(roomData.players);
-
     const handleDisconnect = (player) => {
       setModalTitle("Player Disconnected");
       setModalText(`${player.username} has disconnected`);
@@ -265,6 +387,7 @@ export default function Game({
     };
   }, [history, gameType]);
 
+  // ----------- UI RENDER ----------- //
   return (
     <Stack spacing={2} sx={{ pt: 2 }}>
       <Card>
@@ -272,8 +395,24 @@ export default function Game({
           <Typography variant="h5">Room ID: {room}</Typography>
           <Typography variant="body2">Current turn: {turnColor}</Typography>
           <Typography variant="body2">
-            Game type: {gameType === "paraszthaboru" ? "Classic pawn war" : "Default chess"}
-          </Typography>
+  Game type:{" "}
+  {gameType === "paraszthaboru"
+    ? "Classic pawn war"
+    : gameType === "vezerharc"
+    ? "Queen vs 8 Pawns"
+    : gameType === "bastyaharc"
+    ? "Rook vs 5 Pawns"
+    : gameType === "futoharc"
+    ? "Bishop vs 3 Pawns"
+    : gameType === "huszarok_vs_gyalogok"
+    ? "2 Knights vs 3 Pawns"
+       : gameType === "queen_vs_knight"
+    ? "Queen vs Knight"
+     : gameType === "kiralyvadaszat"
+    ? "King Hunt"
+    : "Default chess"}
+</Typography>
+
         </CardContent>
       </Card>
 

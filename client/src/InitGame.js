@@ -16,9 +16,15 @@ export default function InitGame({ setRoom, setOrientation, setPlayers, setGameT
       <FormControl sx={{minWidth:240,mb:2}}>
         <InputLabel>Game type</InputLabel>
         <Select value={selectedType} onChange={(e)=>setSelectedType(e.target.value)}>
-          <MenuItem value="alap">Default chess</MenuItem>
-          <MenuItem value="paraszthaboru">Classic pawn war</MenuItem>
-          
+          <MenuItem value="alap">Default Chess</MenuItem>
+          <MenuItem value="paraszthaboru">Classic Pawn War</MenuItem>
+           <MenuItem value="vezerharc">Queen vs 8 Pawns</MenuItem>
+                 <MenuItem value="bastyaharc">Rook vs 5 Pawns</MenuItem>
+                   <MenuItem value="futoharc">Bishop vs 3 Pawns</MenuItem>
+            <MenuItem value="huszarok_vs_gyalogok">2 Knights vs 3 Pawns</MenuItem>
+             <MenuItem value="queen_vs_knight">Queen vs Knight</MenuItem>
+              <MenuItem value="kiralyvadaszat">King Hunt</MenuItem>
+
         </Select>
       </FormControl>
 

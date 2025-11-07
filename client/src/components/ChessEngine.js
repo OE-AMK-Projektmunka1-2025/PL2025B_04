@@ -14,6 +14,77 @@ export const initialBoard = (type = "alap") => {
         ["P", "P", "P", "P", "P", "P", "P", "P"],
         [null, null, null, null, null, null, null, null],
       ];
+
+    // ---- ÚJ: VEZÉRHARC (Queen vs 8 pawns) ----
+    case "vezerharc":
+      return [
+        [null, null, null, null, null, null, null, null],
+        ["p", "p", "p", "p", "p", "p", "p", "p"],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, "Q", null, null, null, null],
+      ];
+ case "bastyaharc":
+      return [
+        [null, null, null, null, null, null, null, null],
+        ["p", "p", "p", "p", "p", null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, "R"],
+      ];
+ case "futoharc":
+      return [
+        [null, null, null, null, null, null, null, null],
+        ["p", "p", "p", null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, "B", null, null],
+      ];
+case "huszarok_vs_gyalogok":
+      return [
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, "n", null, null, null, null],
+        [null, null, "n", null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, "P", "P", "P", null, null, null],
+        [null, null, null, null, null, null, null, null],
+      ];
+case "queen_vs_knight":
+      return [
+        [null, null, null, "q", null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, "N", null],
+      ];
+
+      case "kiralyvadaszat":
+      return [
+        [null, null, null, null, "k", null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        ["P", "P", "P", "P", "P", "P", "P", "P"],
+        ["R", "N", "B", "Q", "K", "B", "N", "R"],
+      ];
+
+
     case "alap":
     default:
       return [
@@ -387,21 +458,318 @@ export function getGameStatus(board, wTurn, history = [], enPassantTarget = null
         return { status: "finished", winner: "Black" };
     }
 
-    // --- Ha a következő játékos nem tud lépni → veszít ---
-    const nextIsWhite = !wTurn;
-    const canMove = board.some((r, i) =>
-      r.some((p, j) => {
-        if (!p) return false;
-        if (isWhite(p) !== nextIsWhite) return false;
-        return getValidMoves(board, i, j, null, "paraszthaboru").length > 0;
-      })
-    );
+   // --- Ha a következő játékos nem tud lépni → veszít ---
+const nextIsWhite = !wTurn;
+let canMove = false;
 
-    if (!canMove)
-      return { status: "finished", winner: wTurn ? "White" : "Black" };
+// végigmegyünk a táblán, és megnézzük, van-e bármelyik gyalog, ami léphet
+for (let i = 0; i < 8; i++) {
+  for (let j = 0; j < 8; j++) {
+    const p = board[i][j];
+    if (!p) continue;
+    if (isWhite(p) !== nextIsWhite) continue;
 
-    return { status: "playing" };
+    const valid = getValidMoves(board, i, j, null, "paraszthaboru");
+    if (valid.length > 0) {
+      canMove = true;
+      break;
+    }
   }
+  if (canMove) break;
+}
+
+// ha nincs szabályos lépés, akkor az ellenfél nyer
+if (!canMove) {
+  const winner = nextIsWhite ? "Black" : "White";
+  console.log(`🪖 Parasztháború vége: ${winner} nyert (ellenfél nem tud lépni)`);
+  return { status: "finished", winner, reason: "no-move" };
+}
+
+return { status: "playing" };
+
+  }
+
+  // --- ÚJ: VEZÉRHARC (Queen vs Pawns) ---
+if (type === "vezerharc") {
+  let queenAlive = false;
+  let pawnsAlive = 0;
+  let pawnReached = false;
+
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = board[i][j];
+      if (p === "Q") queenAlive = true;
+      if (p === "p") pawnsAlive++;
+      if (i === 7 && (p === "p" || p === "q")) 
+  pawnReached = true;
+
+
+    }
+  }
+
+  // ha a vezér meghal → fekete győz
+  if (!queenAlive)
+    return { status: "finished", winner: "Black", reason: "queen_captured" };
+
+  // ha az összes gyalogot elütötték → fehér győz
+  if (pawnsAlive === 0)
+    return { status: "finished", winner: "White", reason: "all_pawns_captured" };
+
+  // ha egy fekete gyalog beér a 8. sorba → fekete győz, popup "pawn_promoted"
+  if (pawnReached)
+    return { status: "finished", winner: "Black", reason: "pawn_promoted" };
+
+  return { status: "playing" };
+}
+
+
+// --- ÚJ: BÁSTYAHARC (Rook vs Pawns) ---
+if (type === "bastyaharc") {
+  let rookAlive = false;
+  let pawns = [];
+  let safePromotion = false;
+
+  // Táblabejárás: bástya + gyalogok keresése
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = board[i][j];
+      if (p === "R") rookAlive = true;
+      if (p === "p" || p==="q") pawns.push([i, j]);
+    }
+  }
+
+  // Ha a bástyát leütötték → fekete nyert
+  if (!rookAlive)
+    return { status: "finished", winner: "Black", reason: "rook_captured" };
+
+  // Ha az összes gyalog eltűnt → fehér nyert
+  if (pawns.length === 0)
+    return { status: "finished", winner: "White", reason: "all_pawns_captured" };
+
+  // Ha valamelyik gyalog beér az utolsó sorba, és nem üthető azonnal
+  for (const [i, j] of pawns) {
+    if (i === 7) {
+      let safe = true;
+
+      // bástya tudná-e azonnal ütni?
+      // balra
+      for (let y = j - 1; y >= 0; y--) {
+        if (board[i][y] === "R") safe = false;
+        if (board[i][y]) break;
+      }
+      // jobbra
+      for (let y = j + 1; y < 8; y++) {
+        if (board[i][y] === "R") safe = false;
+        if (board[i][y]) break;
+      }
+      // felfelé
+      for (let x = i - 1; x >= 0; x--) {
+        if (board[x][j] === "R") safe = false;
+        if (board[x][j]) break;
+      }
+
+      if (safe) {
+        safePromotion = true;
+        break;
+      }
+    }
+  }
+
+  if (safePromotion)
+    return { status: "finished", winner: "Black", reason: "safe_pawn_promoted" };
+
+  return { status: "playing" };
+}
+
+
+// --- ÚJ: FUTÓHARC (Bishop vs Pawns) ---
+if (type === "futoharc") {
+  let bishopAlive = false;
+  let pawns = [];
+  let safePromotion = false;
+
+  // Táblabejárás: futó + gyalogok keresése
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = board[i][j];
+      if (p === "B") bishopAlive = true;
+      if (p === "p" || p==="q") pawns.push([i, j]);
+    }
+  }
+
+  // Ha a futót leütötték → fekete nyert
+  if (!bishopAlive)
+    return { status: "finished", winner: "Black", reason: "bishop_captured" };
+
+  // Ha az összes gyalog eltűnt → fehér nyert
+  if (pawns.length === 0)
+    return { status: "finished", winner: "White", reason: "all_pawns_captured" };
+
+  // Ha valamelyik gyalog beér az utolsó sorba, és nem üthető azonnal
+  for (const [i, j] of pawns) {
+    if (i === 7) {
+      let safe = true;
+      // nézzük, hogy a futó átlósan tudná-e ütni
+      const dirs = [
+        [-1, -1],
+        [-1, 1],
+        [1, -1],
+        [1, 1],
+      ];
+      for (const [dx, dy] of dirs) {
+        for (let k = 1; k < 8; k++) {
+          const x = i + dx * k;
+          const y = j + dy * k;
+          if (x < 0 || x > 7 || y < 0 || y > 7) break;
+          if (board[x][y] === "B") safe = false;
+          if (board[x][y]) break;
+        }
+      }
+
+      if (safe) {
+        safePromotion = true;
+        break;
+      }
+    }
+  }
+
+  if (safePromotion)
+    return { status: "finished", winner: "Black", reason: "safe_pawn_promoted" };
+
+  return { status: "playing" };
+}
+
+
+// --- ÚJ: HUSZÁROK VS GYALOGOK (2 Knights vs 3 Pawns) ---
+if (type === "huszarok_vs_gyalogok") {
+  let knights = [];
+  let pawns = [];
+  let safePromotion = false;
+
+  // Táblabejárás: huszárok és gyalogok gyűjtése
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = board[i][j];
+      if (p === "n") knights.push([i, j]);
+      if (p === "P" || p==="Q") pawns.push([i, j]);
+    }
+  }
+
+  // Ha az összes huszárt leütötték → gyalogok nyertek
+  if (knights.length === 0)
+    return { status: "finished", winner: "White", reason: "knights_captured" };
+
+  // Ha az összes gyalog eltűnt → huszárok nyertek
+  if (pawns.length === 0)
+    return { status: "finished", winner: "Black", reason: "all_pawns_captured" };
+
+  // Ha valamelyik gyalog biztonságosan beér az utolsó sorba
+  for (const [i, j] of pawns) {
+    if (i === 0) {
+      let safe = true;
+      // Nézd meg, hogy bármelyik huszár azonnal ütheti-e
+      for (const [kx, ky] of knights) {
+        const moves = [
+          [kx + 2, ky + 1],
+          [kx + 2, ky - 1],
+          [kx - 2, ky + 1],
+          [kx - 2, ky - 1],
+          [kx + 1, ky + 2],
+          [kx + 1, ky - 2],
+          [kx - 1, ky + 2],
+          [kx - 1, ky - 2],
+        ];
+        for (const [mx, my] of moves) {
+          if (mx === i && my === j) {
+            safe = false;
+            break;
+          }
+        }
+      }
+      if (safe) {
+        safePromotion = true;
+        break;
+      }
+    }
+  }
+
+  if (safePromotion)
+    return { status: "finished", winner: "White", reason: "safe_pawn_promoted" };
+
+  return { status: "playing" };
+}
+
+
+// --- ÚJ: VEZÉR VS HUSZÁR --- //
+if (type === "queen_vs_knight") {
+  let queenAlive = false;
+  let knightAlive = false;
+
+  // Végigmegyünk a táblán
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = board[i][j];
+      if (p === "q") queenAlive = true;
+      if (p === "N") knightAlive = true;
+    }
+  }
+
+  // Ha a vezért leütötték → huszár győz
+  if (!queenAlive)
+    return { status: "finished", winner: "Black", reason: "queen_captured" };
+
+  // Ha a huszárt leütötték → vezér győz
+  if (!knightAlive)
+    return { status: "finished", winner: "White", reason: "knight_captured" };
+
+  // Különben még tart a játék
+  return { status: "playing" };
+}
+
+
+
+// --- KIRÁLYVADÁSZAT (White tries to checkmate, Black tries to stalemate) ---
+if (type === "kiralyvadaszat") {
+  const blackKingPos = findKing(board, false);
+
+  // ha a fekete király már nincs a táblán (extrém, debug eset)
+  if (!blackKingPos) {
+    return { status: "finished", winner: "White", reason: "checkmate" };
+  }
+
+  // fekete király sakkban van-e
+  const inCheck = isKingInCheck(board, false);
+
+  // megvizsgáljuk, tud-e lépni a fekete király
+  let hasMove = false;
+  const [kx, ky] = blackKingPos;
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      const x = kx + dx, y = ky + dy;
+      if (x < 0 || x > 7 || y < 0 || y > 7) continue;
+      const target = board[x][y];
+      if (!target || isWhite(target)) {
+        const test = cloneBoard(board);
+        test[x][y] = "k";
+        test[kx][ky] = null;
+        if (!isKingInCheck(test, false)) hasMove = true;
+      }
+    }
+  }
+
+  if (!hasMove) {
+    if (inCheck) {
+      return { status: "finished", winner: "White", reason: "checkmate" };
+    } else {
+      return { status: "finished", winner: "Draw", reason: "stalemate" };
+    }
+  }
+
+  return { status: "playing" };
+}
+
+
 
   // --- Eredeti sakklogika ---
   if (!board) return { status: "playing" };
