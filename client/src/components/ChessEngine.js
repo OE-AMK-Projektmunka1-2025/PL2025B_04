@@ -85,6 +85,45 @@ case "queen_vs_knight":
       ];
 
 
+ case "active_chess":
+      return [
+        
+         ["r", "n", "b", "q", "k", "b", "n", "r", "q"],
+        ["p", "p", "p", "p", "p", "p", "p", "p", "p"],
+        [null, null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null, null],
+        ["P", "P", "P", "P", "P", "P", "P", "P", "P"],
+        ["R", "N", "B", "Q", "K", "B", "N", "R", "Q"],
+      ];
+
+      
+case "faraway_chess":
+  return [
+    ["r", "n", "b", "q", "k", "b", "n", "r"], // 0 – fekete tisztek
+    ["p", "p", "p", "p", "p", "p", "p", "p"], // 1 – fekete gyalogok
+    [null, null, null, null, null, null, null, null], // 2 – üres
+    [null, null, null, null, null, null, null, null], // 3 – üres
+    [null, null, null, null, null, null, null, null], // 4 – üres
+    [null, null, null, null, null, null, null, null], // 5 – üres
+    [null, null, null, null, null, null, null, null], // 6 – üres
+    ["P", "P", "P", "P", "P", "P", "P", "P"],         // 7 – fehér gyalogok
+    ["R", "N", "B", "Q", "K", "B", "N", "R"],         // 8 – fehér tisztek
+  ];
+
+
+case "micro_chess":
+  return [
+    [ "k", "n", "b", "r"], 
+    ["p",null,null,null], 
+    [null, null, null, null], 
+    [null,null,null, "P"],        
+    ["R", "B","N", "K"],         
+  ];
+
+     
+
     case "alap":
     default:
       return [
@@ -100,20 +139,42 @@ case "queen_vs_knight":
   }
 };
 
+
+
 // ----- Segédfüggvények -----
 export const isWhite = (piece) => piece && piece === piece.toUpperCase();
 export const isBlack = (piece) => piece && piece === piece.toLowerCase();
 const cloneBoard = (board) => board.map((row) => [...row]);
-export const squareToCoord = (square) => [8 - parseInt(square[1]), square.charCodeAt(0) - 97];
-export const coordToSquare = (x, y) => String.fromCharCode(97 + y) + (8 - x);
+// export const squareToCoord = (square) => [8 - parseInt(square[1]), square.charCodeAt(0) - 97];
+// export const coordToSquare = (x, y) => String.fromCharCode(97 + y) + (8 - x);
 
-// ----- Király keresés -----
+export const squareToCoord = (square, rows = 8) => {
+  const file = square[0].toLowerCase();
+  const rank = parseInt(square.slice(1));
+  const y = file.charCodeAt(0) - 97;
+  const x = rows - rank; // 🔄 dinamikus a tábla magassága alapján
+  return [x, y];
+};
+
+export const coordToSquare = (x, y, rows = 8) => {
+  const file = String.fromCharCode(97 + y);
+  const rank = rows - x; // 🔄 szintén dinamikus
+  return `${file}${rank}`;
+};
+
+
+
+// ----- Király keresés (javított, dinamikus táblaméret) -----
 function findKing(board, colorWhite) {
   const king = colorWhite ? "K" : "k";
-  for (let i = 0; i < 8; i++)
-    for (let j = 0; j < 8; j++) if (board[i][j] === king) return [i, j];
+  const height = board.length;
+  const width = board[0].length;
+  for (let i = 0; i < height; i++)
+    for (let j = 0; j < width; j++)
+      if (board[i][j] === king) return [i, j];
   return null;
 }
+
 
 function isEnemy(piece, target) {
   if (!piece || !target) return false;
@@ -121,14 +182,20 @@ function isEnemy(piece, target) {
 }
 
 // ----- Nyers lépések -----
-function getRawMoves(board, fromX, fromY, enPassantTarget = null) {
+// ----- Nyers lépések (javított, dinamikus tábla­méret) -----
+function getRawMoves(board, fromX, fromY, enPassantTarget = null, type = "alap") {
   const moves = [];
   if (!board || !Array.isArray(board)) return moves;
+
+  const height = board.length;
+  const width = board[0].length;
   const piece = board[fromX]?.[fromY];
   if (!piece) return moves;
+
   const wTurn = isWhite(piece);
+
   const add = (x, y) => {
-    if (x < 0 || x > 7 || y < 0 || y > 7) return;
+    if (x < 0 || x >= height || y < 0 || y >= width) return;
     const t = board[x][y];
     if (!t || isEnemy(piece, t)) moves.push([x, y]);
   };
@@ -136,22 +203,52 @@ function getRawMoves(board, fromX, fromY, enPassantTarget = null) {
   switch (piece.toLowerCase()) {
     case "p": {
       const dir = wTurn ? -1 : 1;
-      const start = wTurn ? 6 : 1;
+      const start = wTurn ? height - 2 : 1;
 
-      if (!board[fromX + dir]?.[fromY]) {
+      // előrelépés
+      if (fromX + dir >= 0 && fromX + dir < height && !board[fromX + dir][fromY]) {
         moves.push([fromX + dir, fromY]);
-        if (fromX === start && !board[fromX + 2 * dir]?.[fromY])
+        if (
+          type !=="micro_chess" &&
+          fromX === start &&
+          fromX + 2 * dir >= 0 &&
+          fromX + 2 * dir < height &&
+          !board[fromX + 2 * dir][fromY]
+        ) {
           moves.push([fromX + 2 * dir, fromY]);
+        }
       }
 
-      for (const dy of [-1, 1]) {
-        const tx = fromX + dir,
-          ty = fromY + dy;
-        if (tx < 0 || tx > 7 || ty < 0 || ty > 7) continue;
-        const t = board[tx][ty];
-        if (t && isEnemy(piece, t)) moves.push([tx, ty]);
-      }
+      // ütés átlósan
+      // for (const dy of [-1, 1]) {
+      //   const tx = fromX + dir;
+      //   const ty = fromY + dy;
+      //   if (tx < 0 || tx >= height || ty < 0 || ty >= width) continue;
+      //   const t = board[tx][ty];
+      //   if (t && isEnemy(piece, t)) moves.push([tx, ty]);
+      // }
 
+
+      // --- Javított gyalogütés Micro Chess-hez is ---
+for (const dy of [-1, 1]) {
+  const tx = fromX + dir;
+  const ty = fromY + dy;
+
+  // ⚡ Micro Chess-ben engedjük a promóciós sorba ütést is
+  const isPromotionEdge = (type === "micro_chess" && (tx === 0 || tx === height - 1));
+
+  // Ha kimegy a tábláról, csak akkor tiltjuk, ha nem promóciós sor
+  if (tx < 0 || tx >= height || ty < 0 || ty >= width) continue;
+
+  const target = board[tx][ty];
+  // Üthet, ha ellenség van, vagy ha Micro Chess-ben promóciós mező és ellenség is ott van
+  if (target && isEnemy(piece, target)) {
+    moves.push([tx, ty]);
+  }
+}
+
+
+      // en passant
       if (enPassantTarget) {
         const { row, col } = enPassantTarget;
         if (Math.abs(fromY - col) === 1 && fromX + dir === row)
@@ -161,17 +258,16 @@ function getRawMoves(board, fromX, fromY, enPassantTarget = null) {
     }
 
     case "n":
-      [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]].forEach(([dx, dy]) =>
-        add(fromX + dx, fromY + dy)
-      );
+      [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]]
+        .forEach(([dx, dy]) => add(fromX + dx, fromY + dy));
       break;
 
     case "b":
       [[-1, -1], [-1, 1], [1, -1], [1, 1]].forEach(([dx, dy]) => {
-        for (let i = 1; i < 8; i++) {
-          const x = fromX + dx * i,
-            y = fromY + dy * i;
-          if (x < 0 || x > 7 || y < 0 || y > 7) break;
+        for (let i = 1; i < Math.max(height, width); i++) {
+          const x = fromX + dx * i;
+          const y = fromY + dy * i;
+          if (x < 0 || x >= height || y < 0 || y >= width) break;
           if (!board[x][y]) moves.push([x, y]);
           else {
             if (isEnemy(piece, board[x][y])) moves.push([x, y]);
@@ -183,10 +279,10 @@ function getRawMoves(board, fromX, fromY, enPassantTarget = null) {
 
     case "r":
       [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([dx, dy]) => {
-        for (let i = 1; i < 8; i++) {
-          const x = fromX + dx * i,
-            y = fromY + dy * i;
-          if (x < 0 || x > 7 || y < 0 || y > 7) break;
+        for (let i = 1; i < Math.max(height, width); i++) {
+          const x = fromX + dx * i;
+          const y = fromY + dy * i;
+          if (x < 0 || x >= height || y < 0 || y >= width) break;
           if (!board[x][y]) moves.push([x, y]);
           else {
             if (isEnemy(piece, board[x][y])) moves.push([x, y]);
@@ -197,48 +293,100 @@ function getRawMoves(board, fromX, fromY, enPassantTarget = null) {
       break;
 
     case "q":
-      [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]].forEach(([dx, dy]) => {
-        for (let i = 1; i < 8; i++) {
-          const x = fromX + dx * i,
-            y = fromY + dy * i;
-          if (x < 0 || x > 7 || y < 0 || y > 7) break;
-          if (!board[x][y]) moves.push([x, y]);
-          else {
-            if (isEnemy(piece, board[x][y])) moves.push([x, y]);
-            break;
+      [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]]
+        .forEach(([dx, dy]) => {
+          for (let i = 1; i < Math.max(height, width); i++) {
+            const x = fromX + dx * i;
+            const y = fromY + dy * i;
+            if (x < 0 || x >= height || y < 0 || y >= width) break;
+            if (!board[x][y]) moves.push([x, y]);
+            else {
+              if (isEnemy(piece, board[x][y])) moves.push([x, y]);
+              break;
+            }
           }
-        }
-      });
+        });
       break;
 
     case "k":
-      for (let dx = -1; dx <= 1; dx++)
-        for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
           if (dx !== 0 || dy !== 0) add(fromX + dx, fromY + dy);
+        }
+      }
 
-      if (isWhite(piece) && fromX === 7 && fromY === 4) {
-        if (board[7][5] == null && board[7][6] == null && board[7][7] === "R")
-          moves.push([7, 6]);
-        if (
-          board[7][3] == null &&
-          board[7][2] == null &&
-          board[7][1] == null &&
-          board[7][0] === "R"
-        )
-          moves.push([7, 2]);
-      }
-      if (!isWhite(piece) && fromX === 0 && fromY === 4) {
-        if (board[0][5] == null && board[0][6] == null && board[0][7] === "r")
-          moves.push([0, 6]);
-        if (
-          board[0][3] == null &&
-          board[0][2] == null &&
-          board[0][1] == null &&
-          board[0][0] === "r"
-        )
-          moves.push([0, 2]);
-      }
-      break;
+   
+
+// --- Sáncolás (helyes Active / alap sakk különkezelés) ---
+const whiteHome = height - 1;
+const blackHome = 0;
+const centerFile = Math.floor(width / 2);
+
+let rightRookCol, leftRookCol;
+
+if (type === "micro_chess") {
+  // Mikrosakkban nincs sáncolás
+  break;
+}
+
+
+if (type === "active_chess") {
+  // Active Chess – jobb szélen vezér van, előtte bástya
+  rightRookCol = width - 2;
+  leftRookCol = 0;
+} else {
+  // Normál sakk – hagyományos 8x8 pozíciók
+  rightRookCol = width - 1;
+  leftRookCol = 0;
+}
+
+// ♔ Fehér király sáncolás
+if (isWhite(piece) && fromX === whiteHome && fromY === centerFile) {
+  // Rövid sánc
+  if (
+    board[whiteHome][centerFile + 1] == null &&
+    board[whiteHome][centerFile + 2] == null &&
+    board[whiteHome][rightRookCol] === "R"
+  ) {
+    moves.push([whiteHome, centerFile + 2]);
+  }
+
+  // Hosszú sánc
+  if (
+    board[whiteHome][centerFile - 1] == null &&
+    board[whiteHome][centerFile - 2] == null &&
+    board[whiteHome][centerFile - 3] == null &&
+    board[whiteHome][leftRookCol] === "R"
+  ) {
+    moves.push([whiteHome, centerFile - 2]);
+  }
+}
+
+// ♚ Fekete király sáncolás
+if (!isWhite(piece) && fromX === blackHome && fromY === centerFile) {
+  // Rövid sánc
+  if (
+    board[blackHome][centerFile + 1] == null &&
+    board[blackHome][centerFile + 2] == null &&
+    board[blackHome][rightRookCol] === "r"
+  ) {
+    moves.push([blackHome, centerFile + 2]);
+  }
+
+  // Hosszú sánc
+  if (
+    board[blackHome][centerFile - 1] == null &&
+    board[blackHome][centerFile - 2] == null &&
+    board[blackHome][centerFile - 3] == null &&
+    board[blackHome][leftRookCol] === "r"
+  ) {
+    moves.push([blackHome, centerFile - 2]);
+  }
+}
+break;
+
+
+
   }
 
   return moves;
@@ -254,6 +402,7 @@ export function makeMove(board, fromX, fromY, toX, toY, promoteTo = null, enPass
     return nb;
   }
 
+
   // --- Eredeti sakk logika ---
   const nb = cloneBoard(board);
   const piece = nb[fromX][fromY];
@@ -267,27 +416,99 @@ export function makeMove(board, fromX, fromY, toX, toY, promoteTo = null, enPass
     }
   }
 
-  if (piece === "K" && fromX === 7 && fromY === 4) {
-    if (toY === 6) {
-      nb[7][6] = "K";
-      nb[7][5] = "R";
-      nb[7][7] = null;
+
+
+// --- Dinamikus sáncolás támogatás ---
+const height = board.length;
+const width = board[0].length;
+const centerFile = Math.floor(width / 2);
+
+
+// 🧩 MICRO CHESS javítás: promóció ütéskor is működjön
+if (type === "micro_chess") {
+  // ha ütött, töröljük a célbábut
+  if (nb[toX][toY] && isEnemy(piece, nb[toX][toY])) {
+    nb[toX][toY] = null;
+  }
+
+  // ha elérte a promóciós sort
+  const promotionRank = isWhite(piece) ? 0 : nb.length - 1;
+  if (toX === promotionRank && !promoteTo) {
+    // hagyjuk, hogy a popup kezelje a választást — NEM véglegesítjük itt
+    nb[toX][toY] = piece;
+    return nb;
+  }
+
+  // ha már választott új bábut
+  nb[toX][toY] = promoteTo || piece;
+  return nb;
+}
+
+
+// ♔ Fehér sánc
+if (piece === "K" && fromX === height - 1 && fromY === centerFile) {
+  // --- ACTIVE CHESS (9x8 tábla) ---
+  if (type === "active_chess") {
+    // Rövid sánc (f → h)
+    if (toY === centerFile + 2) {
+      nb[height - 1][toY] = "K";
+      nb[height - 1][toY - 1] = "R"; // bástya 7. oszlopról jön
+      nb[height - 1][7] = null;
       return nb;
     }
-    if (toY === 2) {
-      nb[7][2] = "K";
-      nb[7][3] = "R";
-      nb[7][0] = null;
+    // Hosszú sánc (f → d)
+    if (toY === centerFile - 2) {
+      nb[height - 1][toY] = "K";
+      nb[height - 1][toY + 1] = "R";
+      nb[height - 1][0] = null;
       return nb;
     }
   }
-  if (piece === "k" && fromX === 0 && fromY === 4) {
+  // --- ALAP SAKK (8x8 tábla) ---
+  else if (width === 8) {
+    // Rövid sánc (e → g)
+    if (toY === 6) {
+      nb[height - 1][6] = "K";
+      nb[height - 1][5] = "R";
+      nb[height - 1][7] = null;
+      return nb;
+    }
+    // Hosszú sánc (e → c)
+    if (toY === 2) {
+      nb[height - 1][2] = "K";
+      nb[height - 1][3] = "R";
+      nb[height - 1][0] = null;
+      return nb;
+    }
+  }
+}
+
+// ♚ Fekete sánc
+if (piece === "k" && fromX === 0 && fromY === centerFile) {
+  if (type === "active_chess") {
+    // Rövid sánc (f → h)
+    if (toY === centerFile + 2) {
+      nb[0][toY] = "k";
+      nb[0][toY - 1] = "r";
+      nb[0][7] = null;
+      return nb;
+    }
+    // Hosszú sánc (f → d)
+    if (toY === centerFile - 2) {
+      nb[0][toY] = "k";
+      nb[0][toY + 1] = "r";
+      nb[0][0] = null;
+      return nb;
+    }
+  } else if (width === 8) {
+    // Rövid sánc (e → g)
     if (toY === 6) {
       nb[0][6] = "k";
       nb[0][5] = "r";
       nb[0][7] = null;
       return nb;
     }
+    // Hosszú sánc (e → c)
     if (toY === 2) {
       nb[0][2] = "k";
       nb[0][3] = "r";
@@ -295,29 +516,47 @@ export function makeMove(board, fromX, fromY, toX, toY, promoteTo = null, enPass
       return nb;
     }
   }
+}
+
+
 
   nb[toX][toY] = promoteTo || piece;
 
-  if (piece.toLowerCase() === "p") {
-    if ((piece === "P" && toX === 0) || (piece === "p" && toX === 7))
-      nb[toX][toY] = isWhite(piece) ? "Q" : "q";
+if (piece.toLowerCase() === "p") {
+  const height = board.length;
+  if ((piece === "P" && toX === 0) || (piece === "p" && toX === height - 1)) {
+    if (promoteTo) {
+      nb[toX][toY] = promoteTo; // 🔹 a felhasználó által választott bábu
+    } else if (type !== "micro_chess") {
+      nb[toX][toY] = isWhite(piece) ? "Q" : "q"; // 🔸 csak az alap- és active játékban
+    }
   }
+}
+
 
   return nb;
 }
 
 // ----- Sakkellenőrzés -----
-function isKingInCheck(board, colorWhite) {
+function isKingInCheck(board, colorWhite, type = "alap") {
   const kingPos = findKing(board, colorWhite);
   if (!kingPos) return false;
   const [kx, ky] = kingPos;
-  for (let i = 0; i < 8; i++)
-    for (let j = 0; j < 8; j++) {
+
+  const height = board.length;
+  const width = board[0].length;
+
+  for (let i = 0; i < height; i++) {
+    for (let j = 0; j < width; j++) {
       const p = board[i][j];
       if (!p || isWhite(p) === colorWhite) continue;
-      const raw = getRawMoves(board, i, j, null);
-      for (const [x, y] of raw) if (x === kx && y === ky) return true;
+      const raw = getRawMoves(board, i, j, null, type);
+      for (const [x, y] of raw) {
+        if (x === kx && y === ky) return true;
+      }
     }
+  }
+
   return false;
 }
 
@@ -363,16 +602,29 @@ export function getValidMoves(board, fromX, fromY, enPassantTarget = null, type 
     return moves.filter(([tx]) => (w ? tx < fromX : tx > fromX));
   }
 
+
+  // --- MICRO CHESS: külön validálás, hogy ütni tudjon promóció előtt ---
+if (type === "micro_chess") {
+  const piece = board[fromX][fromY];
+  if (!piece) return [];
+
+  const raw = getRawMoves(board, fromX, fromY, enPassantTarget, type);
+
+  // Micro Chess-ben nem ellenőrizzük a sakkot, mert 5x4 tábla miatt gyakran irreleváns
+  return raw;
+}
+
+
   // --- Eredeti sakk logika ---
-  const raw = getRawMoves(board, fromX, fromY, enPassantTarget);
+  const raw = getRawMoves(board, fromX, fromY, enPassantTarget, type);
   const piece = board[fromX][fromY];
   if (!piece) return [];
   const colorWhite = isWhite(piece);
   const legal = [];
 
   for (const [tx, ty] of raw) {
-    const test = makeMove(board, fromX, fromY, tx, ty, null, enPassantTarget);
-    if (!isKingInCheck(test, colorWhite)) legal.push([tx, ty]);
+    const test = makeMove(board, fromX, fromY, tx, ty, null, enPassantTarget, type);
+    if (!isKingInCheck(test, colorWhite, type)) legal.push([tx, ty]);
   }
   return legal;
 }
@@ -380,8 +632,11 @@ export function getValidMoves(board, fromX, fromY, enPassantTarget = null, type 
 // ----- Insufficient material -----
 function isInsufficientMaterial(board) {
   const pieces = [];
-  for (let i = 0; i < 8; i++)
-    for (let j = 0; j < 8; j++) {
+ const height = board.length;
+const width = board[0].length;
+for (let i = 0; i < height; i++)
+  for (let j = 0; j < width; j++) {
+
       const p = board[i][j];
       if (p) pieces.push(p);
     }
@@ -437,57 +692,145 @@ function isThreefoldRepetition(board, wTurn, history = [], enPassantTarget) {
 // ----- Játékállapot -----
 export function getGameStatus(board, wTurn, history = [], enPassantTarget = null, type = "alap") {
   // --- Parasztháború ---
-  if (type === "paraszthaboru") {
-    // --- Győzelem: ha gyalog beért az alapsorra vagy az ellenfél összes gyalogját leütötték ---
-    let whitePawns = 0;
-    let blackPawns = 0;
-    for (let i = 0; i < 8; i++) {
-      for (let j = 0; j < 8; j++) {
-        if (board[i][j] === "P") whitePawns++;
-        if (board[i][j] === "p") blackPawns++;
+if (type === "paraszthaboru") {
+  // --- Győzelem: ha gyalog beért az alapsorra vagy az ellenfél összes gyalogját leütötték ---
+  let whitePawns = 0;
+  let blackPawns = 0;
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      if (board[i][j] === "P") whitePawns++;
+      if (board[i][j] === "p") blackPawns++;
+    }
+  }
+
+  const whiteReached = board[0]?.some((p) => p === "P");
+  const blackReached = board[7]?.some((p) => p === "p");
+
+  if (whiteReached || blackReached || whitePawns === 0 || blackPawns === 0) {
+    if (whiteReached || blackPawns === 0)
+      return { status: "finished", winner: "White" };
+    if (blackReached || whitePawns === 0)
+      return { status: "finished", winner: "Black" };
+  }
+
+  // --- Ha a következő játékos nem tud lépni → veszít ---
+  const nextToMove = wTurn; // aki most jön
+  let canMove = false;
+  let pawns = [];
+
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = board[i][j];
+      if (!p) continue;
+      if (isWhite(p) !== nextToMove) continue;
+      if (p.toLowerCase() !== "p") continue;
+
+      pawns.push([i, j]);
+      const valid = getValidMoves(board, i, j, null, "paraszthaboru");
+      if (valid.length > 0) {
+        canMove = true;
+        break;
       }
     }
-
-    const whiteReached = board[0]?.some((p) => p === "P");
-    const blackReached = board[7]?.some((p) => p === "p");
-
-    if (whiteReached || blackReached || whitePawns === 0 || blackPawns === 0) {
-      if (whiteReached || blackPawns === 0)
-        return { status: "finished", winner: "White" };
-      if (blackReached || whitePawns === 0)
-        return { status: "finished", winner: "Black" };
-    }
-
-   // --- Ha a következő játékos nem tud lépni → veszít ---
-const nextIsWhite = !wTurn;
-let canMove = false;
-
-// végigmegyünk a táblán, és megnézzük, van-e bármelyik gyalog, ami léphet
-for (let i = 0; i < 8; i++) {
-  for (let j = 0; j < 8; j++) {
-    const p = board[i][j];
-    if (!p) continue;
-    if (isWhite(p) !== nextIsWhite) continue;
-
-    const valid = getValidMoves(board, i, j, null, "paraszthaboru");
-    if (valid.length > 0) {
-      canMove = true;
-      break;
-    }
+    if (canMove) break;
   }
-  if (canMove) break;
+
+  if (!canMove && pawns.length > 0) {
+    const winner = nextToMove ? "Black" : "White";
+    console.log(
+      `🪖 Parasztháború vége: ${winner} nyert (ellenfél minden gyalogja blokkolva)`
+    );
+    return { status: "finished", winner, reason: "no-move" };
+  }
+
+  return { status: "playing" };
+
+
+  
 }
 
-// ha nincs szabályos lépés, akkor az ellenfél nyer
-if (!canMove) {
-  const winner = nextIsWhite ? "Black" : "White";
-  console.log(`🪖 Parasztháború vége: ${winner} nyert (ellenfél nem tud lépni)`);
-  return { status: "finished", winner, reason: "no-move" };
+
+// --- ACTIVE CHESS (9x8 tábla, bővített sakk) ---
+if (type === "active_chess") {
+  const height = board.length;
+  const width = board[0].length;
+
+  const wk = findKing(board, true);
+  const bk = findKing(board, false);
+
+  if (!wk) return { status: "checkmate", winner: "Black" };
+  if (!bk) return { status: "checkmate", winner: "White" };
+
+  // --- Threefold és insufficient material működjön ugyanúgy ---
+  if (isInsufficientMaterial(board)) return { status: "insufficient" };
+  if (isThreefoldRepetition(board, wTurn, history, enPassantTarget))
+    return { status: "threefold" };
+
+  // --- Van-e legal move ---
+  let hasMove = false;
+  for (let x = 0; x < height; x++) {
+    for (let y = 0; y < width; y++) {
+      const p = board[x][y];
+      if (!p) continue;
+      if ((wTurn && isWhite(p)) || (!wTurn && isBlack(p))) {
+        const mv = getValidMoves(board, x, y, enPassantTarget, type);
+        if (mv.length > 0) hasMove = true;
+      }
+    }
+  }
+
+  // --- Patt vagy matt logika ---
+  if (!hasMove) {
+    if (isKingInCheck(board, wTurn, type))
+      return { status: "checkmate", winner: wTurn ? "Black" : "White" };
+    return { status: "stalemate" };
+  }
+
+  return { status: "playing" };
 }
 
-return { status: "playing" };
+// Micro Chess
+if (type === "micro_chess") {
+  const wk = findKing(board, true);
+  const bk = findKing(board, false);
 
+  if (!wk) return { status: "checkmate", winner: "Black" };
+  if (!bk) return { status: "checkmate", winner: "White" };
+
+  // ugyanaz a két „gyors” draw-check, mint alap sakkban
+  if (isInsufficientMaterial(board)) return { status: "insufficient" };
+  if (isThreefoldRepetition(board, wTurn, history, enPassantTarget))
+    return { status: "threefold" };
+
+  // van-e legális lépés
+  let hasMove = false;
+  const height = board.length;
+  const width = board[0].length;
+
+  for (let x = 0; x < height; x++) {
+    for (let y = 0; y < width; y++) {
+      const p = board[x][y];
+      if (!p) continue;
+      if ((wTurn && isWhite(p)) || (!wTurn && isBlack(p))) {
+        const mv = getValidMoves(board, x, y, enPassantTarget, type);
+        if (mv.length > 0) { hasMove = true; break; }
+      }
+    }
+    if (hasMove) break;
   }
+
+  if (!hasMove) {
+    if (isKingInCheck(board, wTurn, type))
+      return { status: "checkmate", winner: wTurn ? "Black" : "White" };
+    return { status: "stalemate" };
+  }
+
+  return { status: "playing" };
+}
+
+
+
+
 
   // --- ÚJ: VEZÉRHARC (Queen vs Pawns) ---
 if (type === "vezerharc") {
@@ -782,19 +1125,35 @@ if (type === "kiralyvadaszat") {
   if (!wk) return { status: "checkmate", winner: "Black" };
   if (!bk) return { status: "checkmate", winner: "White" };
 
-  let hasMove = false;
-  for (let x = 0; x < 8; x++)
-    for (let y = 0; y < 8; y++) {
-      const p = board[x][y];
-      if (!p) continue;
-      if ((wTurn && isWhite(p)) || (!wTurn && isBlack(p))) {
-        const mv = getValidMoves(board, x, y, enPassantTarget);
-        if (mv.length > 0) hasMove = true;
-      }
+  // let hasMove = false;
+  // for (let x = 0; x < 8; x++)
+  //   for (let y = 0; y < 8; y++) {
+  //     const p = board[x][y];
+  //     if (!p) continue;
+  //     if ((wTurn && isWhite(p)) || (!wTurn && isBlack(p))) {
+  //       const mv = getValidMoves(board, x, y, enPassantTarget,type);
+  //       if (mv.length > 0) hasMove = true;
+  //     }
+  //   }
+
+
+  const height = board.length;
+const width = board[0].length;
+
+let hasMove = false;
+for (let x = 0; x < height; x++) {
+  for (let y = 0; y < width; y++) {
+    const p = board[x][y];
+    if (!p) continue;
+    if ((wTurn && isWhite(p)) || (!wTurn && isBlack(p))) {
+      const mv = getValidMoves(board, x, y, enPassantTarget, type);
+      if (mv.length > 0) hasMove = true;
     }
+  }
+}
 
   if (!hasMove) {
-    if (isKingInCheck(board, wTurn))
+    if (isKingInCheck(board, wTurn,type))
       return { status: "checkmate", winner: wTurn ? "Black" : "White" };
     return { status: "stalemate" };
   }

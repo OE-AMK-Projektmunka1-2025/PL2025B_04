@@ -75,7 +75,12 @@ async function saveRooms(rooms) {
           gameType,
         });
         await saveRooms(rooms);
-        if (typeof callback === "function") callback(roomId);
+        // if (typeof callback === "function") callback(roomId);
+        if (typeof callback === "function") {
+  const createdRoom = rooms.get(roomId);
+  callback(createdRoom); // küldjük vissza az egész szobát, nem csak az ID-t
+}
+
         console.log(`🆕 Room created: ${roomId} (${gameType})`);
       } catch (e) {
         console.error("createRoom error:", e);
@@ -152,6 +157,11 @@ async function saveRooms(rooms) {
 
       const previousBoard = game.board ? JSON.parse(JSON.stringify(game.board)) : null;
 
+
+   
+
+
+
       // --- PARASZTHÁBORÚ LOGIKA ---
       if (isPeasantWar) {
         game.board = board;
@@ -189,7 +199,7 @@ async function saveRooms(rooms) {
         }
 
        // ha a következő játékosnak csak 1 gyalogja maradt és nem tud szabályos lépést tenni → vége
- // --- 🔥 ÚJ: ha a következő félnek csak 1 gyalogja maradt és nem tud lépni ---
+ // --- 🔥 ÚJ: ha a következő fél összes gyalogja blokkolva van (nem tud lépni) ---
 const nextIsWhite = game.turnColor === "white";
 const whitePawnPositions = [];
 const blackPawnPositions = [];
@@ -201,53 +211,42 @@ for (let i = 0; i < 8; i++) {
   }
 }
 
-const singlePawnLeft =
-  (nextIsWhite && whitePawnPositions.length === 1) ||
-  (!nextIsWhite && blackPawnPositions.length === 1);
+const pawns = nextIsWhite ? whitePawnPositions : blackPawnPositions;
+let canMove = false;
 
-console.log("♟️ Next turn:", nextIsWhite ? "White" : "Black");
-console.log("White pawns:", whitePawnPositions.length, "Black pawns:", blackPawnPositions.length);
-console.log("Single pawn left?", singlePawnLeft);
-
-if (singlePawnLeft) {
-  const pawns = nextIsWhite ? whitePawnPositions : blackPawnPositions;
-  let canMove = false;
-
-  for (const [i, j] of pawns) {
-    const dir = nextIsWhite ? -1 : 1;
-
-    // előrelépés
-    if (i + dir >= 0 && i + dir < 8 && board[i + dir][j] === null) {
-      canMove = true;
-    }
-
-    // ütés átlósan
-    for (const dy of [-1, 1]) {
-      const x = i + dir;
-      const y = j + dy;
-      if (x >= 0 && x < 8 && y >= 0 && y < 8) {
-        const target = board[x][y];
-        if (target && (nextIsWhite !== (target === target.toUpperCase()))) {
-          canMove = true;
-        }
+for (const [i, j] of pawns) {
+  const dir = nextIsWhite ? -1 : 1;
+  // lépés előre
+  if (i + dir >= 0 && i + dir < 8 && board[i + dir][j] === null) {
+    canMove = true;
+    break;
+  }
+  // ütés átlósan
+  for (const dy of [-1, 1]) {
+    const x = i + dir;
+    const y = j + dy;
+    if (x >= 0 && x < 8 && y >= 0 && y < 8) {
+      const target = board[x][y];
+      if (target && (nextIsWhite !== (target === target.toUpperCase()))) {
+        canMove = true;
+        break;
       }
     }
   }
+  if (canMove) break;
+}
 
-  console.log("Can move?", canMove);
-
-  if (!canMove) {
-    const winner = nextIsWhite ? "Black" : "White";
-    io.to(room).emit("drawOrMate", {
-      status: { status: "finished", winner, reason: "no-move" },
-    });
-    console.log(
-      `🪖 Parasztháború vége: ${winner} nyert (ellenfél egyetlen gyalogja beszorult)`
-    );
-    rooms.set(room, game);
-    await saveRooms(rooms);
-    return;
-  }
+if (!canMove && pawns.length > 0) {
+  const winner = nextIsWhite ? "Black" : "White";
+  io.to(room).emit("drawOrMate", {
+    status: { status: "finished", winner, reason: "no-move" },
+  });
+  console.log(
+    `🪖 Parasztháború vége: ${winner} nyert (ellenfél összes gyalogja blokkolva)`
+  );
+  rooms.set(room, game);
+  await saveRooms(rooms);
+  return;
 }
 
 
@@ -614,8 +613,8 @@ if (game.gameType === "queen_vs_knight") {
   for (let i = 0; i < 8; i++) {
     for (let j = 0; j < 8; j++) {
       const p = board[i][j];
-      if (p === "Q") queenAlive = true;
-      if (p === "n") knightAlive = true;
+      if (p === "q") queenAlive = true;
+      if (p === "N") knightAlive = true;
     }
   }
 
@@ -742,6 +741,154 @@ if (isKingHunt) {
 }
 
 
+// --- ACTIVE CHESS LOGIKA (9x8-as tábla, bővített sakk) ---
+if (game.gameType === "active_chess") {
+  game.board = board;
+  game.hasMoved[playerId] = true;
+  game.turnColor = playerColor === "white" ? "black" : "white";
+
+  socket.to(room).emit("move", {
+    board: game.board,
+    turnColor: game.turnColor,
+  });
+
+  const height = board.length;
+  const width = board[0].length;
+
+  // --- Királyok keresése ---
+  let whiteKing = false;
+  let blackKing = false;
+  for (let i = 0; i < height; i++) {
+    for (let j = 0; j < width; j++) {
+      if (board[i][j] === "K") whiteKing = true;
+      if (board[i][j] === "k") blackKing = true;
+    }
+  }
+
+  if (!whiteKing || !blackKing) {
+    const winner = !whiteKing ? "Black" : "White";
+    io.to(room).emit("drawOrMate", {
+      status: { status: "checkmate", winner },
+    });
+    console.log(`♜ Active Chess vége: ${winner} nyert (király leütve)`);
+    rooms.set(room, game);
+    await saveRooms(rooms);
+    return;
+  }
+
+  // --- Patt vagy matt detektálás ---
+  const inCheck = (colorWhite) => {
+    const kingSymbol = colorWhite ? "K" : "k";
+    let kingPos = null;
+    for (let i = 0; i < height; i++)
+      for (let j = 0; j < width; j++)
+        if (board[i][j] === kingSymbol) kingPos = [i, j];
+    if (!kingPos) return false;
+
+    const [kx, ky] = kingPos;
+    for (let i = 0; i < height; i++) {
+      for (let j = 0; j < width; j++) {
+        const p = board[i][j];
+        if (!p) continue;
+        if ((colorWhite && p === p.toUpperCase()) || (!colorWhite && p === p.toLowerCase())) continue;
+        const moves = getRawMoves(board, i, j, null, "active_chess");
+        for (const [x, y] of moves)
+          if (x === kx && y === ky) return true;
+      }
+    }
+    return false;
+  };
+
+  const whiteInCheck = inCheck(true);
+  const blackInCheck = inCheck(false);
+
+  // --- Tud-e lépni az aktuális fél ---
+  let hasMove = false;
+  for (let i = 0; i < height; i++) {
+    for (let j = 0; j < width; j++) {
+      const p = board[i][j];
+      if (!p) continue;
+      if (
+        (game.turnColor === "white" && p === p.toUpperCase()) ||
+        (game.turnColor === "black" && p === p.toLowerCase())
+      ) {
+        const moves = getRawMoves(board, i, j, null, "active_chess");
+        if (moves.length > 0) {
+          hasMove = true;
+          break;
+        }
+      }
+    }
+    if (hasMove) break;
+  }
+
+if (!hasMove) {
+  let status;
+  const colorWhite = game.turnColor === "white";
+  const inCheckNow = isKingInCheck(board, colorWhite, "active_chess");
+
+  if (inCheckNow)
+    status = { status: "checkmate", winner: colorWhite ? "Black" : "White" };
+  else
+    status = { status: "stalemate" };
+
+
+    io.to(room).emit("drawOrMate", { status });
+    console.log(
+      `♟️ Active Chess vége: ${status.status === "checkmate" ? "Matt" : "Patt"} — ${status.winner || "Döntetlen"}`
+    );
+
+    rooms.set(room, game);
+    await saveRooms(rooms);
+    return;
+  }
+
+  rooms.set(room, game);
+  await saveRooms(rooms);
+  return;
+}
+
+
+
+// --- FARAWAY CHESS LOGIKA (8x9-es tábla, alap sakk szabályokkal) ---
+if (game.gameType === "faraway_chess") {
+  game.board = board;
+  game.hasMoved[playerId] = true;
+  game.turnColor = playerColor === "white" ? "black" : "white";
+
+  socket.to(room).emit("move", {
+    board: game.board,
+    turnColor: game.turnColor,
+  });
+
+  // ugyanazt a státuszellenőrzést használd, mint a normál sakk
+  const height = board.length;
+  const width = board[0].length;
+
+  let whiteKing = false;
+  let blackKing = false;
+  for (let i = 0; i < height; i++) {
+    for (let j = 0; j < width; j++) {
+      if (board[i][j] === "K") whiteKing = true;
+      if (board[i][j] === "k") blackKing = true;
+    }
+  }
+
+  if (!whiteKing || !blackKing) {
+    const winner = !whiteKing ? "Black" : "White";
+    io.to(room).emit("drawOrMate", {
+      status: { status: "checkmate", winner },
+    });
+    console.log(`♜ Faraway Chess vége: ${winner} nyert (király leütve)`);
+    rooms.set(room, game);
+    await saveRooms(rooms);
+    return;
+  }
+
+  rooms.set(room, game);
+  await saveRooms(rooms);
+  return;
+}
 
 
 

@@ -24,6 +24,11 @@ export default function InitGame({ setRoom, setOrientation, setPlayers, setGameT
             <MenuItem value="huszarok_vs_gyalogok">2 Knights vs 3 Pawns</MenuItem>
              <MenuItem value="queen_vs_knight">Queen vs Knight</MenuItem>
               <MenuItem value="kiralyvadaszat">King Hunt</MenuItem>
+               <MenuItem value="active_chess">Active Chess</MenuItem>
+                  <MenuItem value="faraway_chess">Faraway Chess</MenuItem>
+                   <MenuItem value="micro_chess">Micro Chess</MenuItem>
+               
+               
 
         </Select>
       </FormControl>
@@ -32,16 +37,43 @@ export default function InitGame({ setRoom, setOrientation, setPlayers, setGameT
         <InputLabel>Board size</InputLabel>
         <Select value={selectedBoardSize} onChange={(e)=>setSelectedBoardSize(e.target.value)}>
           <MenuItem value="8x8">8x8</MenuItem>
+          {selectedType==="active_chess" && (   <MenuItem value="9x8">9x8</MenuItem>)}
+             {selectedType==="faraway_chess" && (   <MenuItem value="8x9">8x9</MenuItem>)}
+       {selectedType==="micro_chess" && (   <MenuItem value="4x5">4x5</MenuItem>)}
         </Select>
       </FormControl>
 
       <Button variant="contained" onClick={()=>{
-        socket.emit("createRoom",(r)=>{
-          setRoom(r);
-          setOrientation("white");
-          setGameType(selectedType);
-          setBoardSize(selectedBoardSize);
-        })
+
+          if (selectedType === "active_chess" && selectedBoardSize !== "9x8") {
+      alert("⚠️ Active Chess only supports 9x8 board size!");
+      return;
+    }
+
+       if (selectedType === "faraway_chess" && selectedBoardSize !== "8x9") {
+      alert("⚠️ Faraway Chess only supports 8x9 board size!");
+      return;
+    }
+
+
+      if (selectedType === "micro_chess" && selectedBoardSize !== "4x5") {
+      alert("⚠️ Micro Chess only supports 4x5 board size!");
+      return;
+    }
+       
+
+socket.emit("createRoom",(roomData)=>{
+  if (!roomData) return;
+  setRoom(roomData.roomId);
+  setPlayers(roomData.players);
+  // az első játékos mindig fehér, de a szerver küldött színe alapján állítjuk
+  const me = roomData.players.find(p => p.id === socket.id);
+  setOrientation(me?.color || "white");
+  setGameType(selectedType);
+  setBoardSize(selectedBoardSize);
+});
+
+
       }} sx={{mb:1}}>Start a game</Button>
 
       <Button onClick={()=>setRoomDialogOpen(true)}>Join a game</Button>
@@ -52,7 +84,13 @@ export default function InitGame({ setRoom, setOrientation, setPlayers, setGameT
           if(r.error) return setRoomError(r.message);
           setRoom(r?.roomId);
           setPlayers(r?.players);
-          setOrientation("black");
+          // setOrientation("black");
+
+          // 🔄 Dinamikus orientáció: ha te vagy az első játékos → fehér, ha a második → fekete
+const me = socket.id;
+const amIWhite = r?.players?.[0]?.id === me;
+setOrientation(amIWhite ? "white" : "black");
+
           setGameType(selectedType);
           setBoardSize(selectedBoardSize);
           setRoomDialogOpen(false);

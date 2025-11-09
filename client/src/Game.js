@@ -23,16 +23,17 @@ import {
   getGameStatus,
   isWhite,
 } from "./components/ChessEngine";
+import PromotionDialog from "./components/PromotionDialog";
 
-function boardToPosition(board) {
-  const position = {};
-  board.forEach((row, x) =>
-    row.forEach((piece, y) => {
-      if (piece) position[coordToSquare(x, y)] = piece;
-    })
-  );
-  return position;
-}
+// function boardToPosition(board) {
+//   const position = {};
+//   board.forEach((row, x) =>
+//     row.forEach((piece, y) => {
+//       if (piece) position[coordToSquare(x, y,rows)] = piece;
+//     })
+//   );
+//   return position;
+// }
 
 export default function Game({
   players,
@@ -53,15 +54,135 @@ export default function Game({
   const [turnColor, setTurnColor] = useState("white");
   const [enPassantTarget, setEnPassantTarget] = useState(null);
 
+
+  // --- Promóció állapot Micro Chess-hez ---
+const [promotionData, setPromotionData] = useState(null);
+
+const handlePromotionSelect = (promoteTo) => {
+  if (!promotionData) return;
+  const { fromX, fromY, toX, toY, captured } = promotionData;
+
+  const piece = board[fromX][fromY];
+
+  // 🔄 Másolat a tábláról, hogy közvetlenül módosíthassunk rajta
+  const newBoard = board.map((row) => [...row]);
+
+  // 🧹 Ha ütött bábu van a célmezőn, távolítsd el (biztonsági okból)
+  if (captured) {
+    newBoard[toX][toY] = null;
+  }
+
+  // ♕ Végrehajtjuk a promóciót
+  const promotedBoard = makeMove(
+    newBoard,
+    fromX,
+    fromY,
+    toX,
+    toY,
+    promoteTo,
+    enPassantTarget,
+    gameType
+  );
+
+  const newEnPassant = null;
+  const nextWTurn = !(turnColor === "white");
+
+  const newHistoryEntry = {
+    board: promotedBoard,
+    wTurn: nextWTurn,
+    enPassantTarget: newEnPassant,
+  };
+  const newHistory = [...history, newHistoryEntry];
+
+  setBoard(promotedBoard);
+  setHistory(newHistory);
+  setPromotionData(null);
+  setEnPassantTarget(newEnPassant);
+  hasMovedRef.current = true;
+
+  // 🔄 Ellenőrzés: játék vége-e
+  const status = getGameStatus(
+    promotedBoard,
+    nextWTurn,
+    newHistory,
+    newEnPassant,
+    gameType
+  );
+
+  // 🔊 Küldjük a lépést a szerverre
+  socket.emit("move", {
+    room,
+    board: promotedBoard,
+    move: { piece, fromRow: fromX, fromCol: fromY, toRow: toX, toCol: toY, promoteTo },
+    playerId: playerId.current,
+    enPassantTarget: newEnPassant,
+    turnColor: nextWTurn ? "white" : "black",
+    history: newHistory,
+  });
+
+  // 🧠 Ha vége a játéknak
+  if (status.status !== "playing") {
+    openModalForStatus(status);
+    socket.emit("drawOrMate", { room, status });
+  } else {
+    setTurnColor(nextWTurn ? "white" : "black");
+  }
+};
+
+
+
+ 
+
+
   const hasMovedRef = useRef(false);
   const playerId = useRef(socket.id);
+
+
+// 🔄 Orientáció a játékos színe alapján
+const [localOrientation, setLocalOrientation] = useState("white");
+
+useEffect(() => {
+  const allPlayers = playersState.length ? playersState : players;
+  const me = allPlayers.find((p) => p.id === socket.id);
+  if (me && me.color) {
+    setLocalOrientation(me.color);
+  }
+}, [playersState, players]);
+
+
+// 🔄 Ha a külső orientation változik, frissítsd a helyi nézetet is
+useEffect(() => {
+  if (orientation) {
+    setLocalOrientation(orientation);
+  }
+}, [orientation]);
+
+
+
 
   const rows = parseInt(boardSize?.split("x")[1] || 8);
   const cols = parseInt(boardSize?.split("x")[0] || 8);
 
+  
+  // ✅ IDE MOZGASD BE
+  const boardToPosition = useCallback(
+    (board) => {
+      const position = {};
+      board.forEach((row, x) =>
+        row.forEach((piece, y) => {
+          if (piece) position[coordToSquare(x, y, rows)] = piece;
+        })
+      );
+      return position;
+    },
+    [rows]
+  );
+
+
   // ----------- MODÁL MEGJELENÍTÉS ----------- //
   const openModalForStatus = (status) => {
   let title = "", text = "";
+
 
   // --- Parasztháború logika ---
   if (gameType === "paraszthaboru") {
@@ -167,10 +288,11 @@ else if (gameType === "huszarok_vs_gyalogok") {
 else if (gameType === "queen_vs_knight") {
   if (status.status === "finished") {
     title = "Game over!";
+     // 🟢 Itt cseréljük meg a győztes szöveget
     if (status.reason === "queen_captured") {
-      text = "Black wins — the Queen has been captured!";
+      text = "White wins — the Queen has been captured!"; // vezér = fekete, tehát fehér nyer
     } else if (status.reason === "knight_captured") {
-      text = "White wins — the Knight has been captured!";
+      text = "Black wins — the Knight has been captured!"; // huszár = fehér, tehát fekete nyer
     } else {
       text = status.winner === "White" ? "White wins!" : "Black wins!";
     }
@@ -199,6 +321,25 @@ else if (gameType === "kiralyvadaszat") {
     text = "Checkmate or stalemate — the hunt continues!";
   }
 }
+
+
+// --- ACTIVE CHESS logika ---
+else if (gameType === "active_chess") {
+  if (status.status === "checkmate") {
+    title = "Dynamic Checkmate!";
+    text = `${status.winner} wins in Active Chess — expanded board victory!`;
+  } else if (status.status === "stalemate") {
+    title = "Dynamic Stalemate!";
+    text = "No legal moves left — the expanded board ends in a draw.";
+  } else if (status.status === "insufficient") {
+    title = "Draw!";
+    text = "Insufficient material for checkmate in Active Chess.";
+  } else if (status.status === "threefold") {
+    title = "Draw by Repetition!";
+    text = "Same position repeated three times — it’s a draw.";
+  }
+}
+
 
 
 
@@ -309,8 +450,18 @@ else if (gameType === "kiralyvadaszat") {
   const handleMove = useCallback(
     (from, to) => {
       if (playersState.length < 2 || hasMovedRef.current) return;
-      const [fromX, fromY] = squareToCoord(from);
-      const [toX, toY] = squareToCoord(to);
+      let [fromX, fromY] = squareToCoord(from,rows);
+      let [toX, toY] = squareToCoord(to,rows);
+
+
+    //     // 🔄 Ha a játékos fekete, tükrözzük a koordinátákat
+    // if (orientation === "black") {
+    //   fromX = rows - 1 - fromX;
+    //   toX = rows - 1 - toX;
+    //   fromY = cols - 1 - fromY;
+    //   toY = cols - 1 - toY;
+    // }
+
       const piece = board[fromX][fromY];
       if (!piece) return;
 
@@ -320,9 +471,30 @@ else if (gameType === "kiralyvadaszat") {
       const validMoves = getValidMoves(board, fromX, fromY, enPassantTarget, gameType);
       if (!validMoves.some(([x, y]) => x === toX && y === toY)) return;
 
+
+   // --- Micro Chess: promóció popup (ütésre is) ---
+if (gameType === "micro_chess" && piece && piece.toLowerCase() === "p") {
+  const isWhitePawn = piece === "P";
+  const promotionRank = isWhitePawn ? 0 : rows - 1;
+
+  // ⚡ NEM érdekel, hogy üt vagy simán lép — ha beér a sorba, promóció jön
+  if (toX === promotionRank) {
+    setPromotionData({
+      fromX,
+      fromY,
+      toX,
+      toY,
+      color: isWhitePawn ? "white" : "black",
+    });
+    return; // várjuk a választást
+  }
+}
+
+
+
       executeMove(fromX, fromY, toX, toY);
     },
-    [board, turnColor, playersState, enPassantTarget, history, gameType]
+    [board, turnColor, playersState, enPassantTarget, history, gameType,rows]
   );
 
   // ----------- SOCKET ESEMÉNYEK ----------- //
@@ -388,6 +560,25 @@ else if (gameType === "kiralyvadaszat") {
   }, [history, gameType]);
 
   // ----------- UI RENDER ----------- //
+  // --- AUTOMATIKUS POPUP Active Chess esetén ---
+useEffect(() => {
+  if (gameType === "active_chess") {
+    const status = getGameStatus(
+      board,
+      turnColor === "white",
+      history,
+      enPassantTarget,
+      gameType
+    );
+    if (status && status.status && status.status !== "playing") {
+      openModalForStatus(status);
+    }
+  }
+}, [board, turnColor, history, enPassantTarget, gameType]);
+
+
+
+
   return (
     <Stack spacing={2} sx={{ pt: 2 }}>
       <Card>
@@ -410,7 +601,13 @@ else if (gameType === "kiralyvadaszat") {
     ? "Queen vs Knight"
      : gameType === "kiralyvadaszat"
     ? "King Hunt"
-    : "Default chess"}
+    :gameType==="active_chess"
+    ? "Active Chess"
+      :gameType==="faraway_chess"
+    ? "Faraway Chess"
+      :gameType==="micro_chess"
+    ? "Micro Chess"
+      : "Default chess"}
 </Typography>
 
         </CardContent>
@@ -420,7 +617,8 @@ else if (gameType === "kiralyvadaszat") {
         <CustomBoard
           position={boardToPosition(board)}
           onMove={handleMove}
-          orientation={orientation}
+          orientation={localOrientation}
+   
           rows={rows}
           cols={cols}
         />
@@ -446,6 +644,19 @@ else if (gameType === "kiralyvadaszat") {
           cleanup();
         }}
       />
+
+{/* ♕ Promóció popup – csak Micro Chess esetén */}
+{gameType === "micro_chess" && promotionData && (
+  <PromotionDialog
+    open={!!promotionData}
+    color={promotionData.color}
+    onSelect={handlePromotionSelect}
+  />
+)}
+
+
+
+
     </Stack>
   );
 }
