@@ -12,7 +12,7 @@ const port = process.env.PORT || 8080;
 
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: ["http://localhost:3000", "http://54.38.157.7:3000"],
     methods: ["GET", "POST"],
     credentials: true,
   })
@@ -20,7 +20,7 @@ app.use(
 
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:3000"],
+    origin: ["http://localhost:3000", "http://54.38.157.7:3000"],
     methods: ["GET", "POST"],
     credentials: true,
   },
